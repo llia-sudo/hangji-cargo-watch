@@ -27,3 +27,20 @@ test("configures cloud persistence and an order-number uniqueness rule", async (
   assert.match(schema, /shipments_order_no_unique/);
   assert.match(migration, /CREATE UNIQUE INDEX `shipments_order_no_unique`/);
 });
+
+test("protects the page and shipment API with server-side password sessions", async () => {
+  const [page, shipmentApi, auth, login, migration] = await Promise.all([
+    readFile(new URL("app/page.tsx", root), "utf8"),
+    readFile(new URL("app/api/shipments/route.ts", root), "utf8"),
+    readFile(new URL("app/lib/password-auth.ts", root), "utf8"),
+    readFile(new URL("app/api/auth/login/route.ts", root), "utf8"),
+    readFile(new URL("drizzle/0001_password_access.sql", root), "utf8"),
+  ]);
+
+  assert.match(page, /hasValidPageSession/);
+  assert.match(shipmentApi, /hasValidRequestSession/);
+  assert.match(auth, /ACCESS_PASSWORD_HASH/);
+  assert.match(auth, /HttpOnly/);
+  assert.match(login, /MAX_FAILURES = 5/);
+  assert.match(migration, /CREATE TABLE `auth_attempts`/);
+});

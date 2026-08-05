@@ -1,4 +1,5 @@
 import { ensureShipmentsSchema, getD1 } from "@/db";
+import { hasValidRequestSession } from "@/app/lib/password-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -192,7 +193,15 @@ async function seedIfEmpty() {
   ]);
 }
 
-export async function GET() {
+function unauthorized() {
+  return Response.json(
+    { error: "登录已过期，请重新输入访问密码" },
+    { status: 401, headers: { "Cache-Control": "no-store" } }
+  );
+}
+
+export async function GET(request: Request) {
+  if (!await hasValidRequestSession(request)) return unauthorized();
   try {
     await ensureShipmentsSchema();
     await seedIfEmpty();
@@ -205,6 +214,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!await hasValidRequestSession(request)) return unauthorized();
   try {
     await ensureShipmentsSchema();
     const body = (await request.json()) as {

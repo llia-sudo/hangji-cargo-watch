@@ -29,3 +29,11 @@ export const shipments = sqliteTable(
   },
   (table) => [uniqueIndex("shipments_order_no_unique").on(table.orderNo)]
 );
+
+export const authAttempts = sqliteTable("auth_attempts", {
+  keyHash: text("key_hash").primaryKey(),
+  windowStart: integer("window_start").notNull().default(0),
+  failures: integer("failures").notNull().default(0),
+  lockedUntil: integer("locked_until").notNull().default(0),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});

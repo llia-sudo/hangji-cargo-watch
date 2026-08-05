@@ -69,3 +69,29 @@ export function ensureShipmentsSchema() {
 
   return schemaReady;
 }
+
+let authSchemaReady: Promise<void> | null = null;
+
+export function ensureAuthSchema() {
+  if (!authSchemaReady) {
+    const d1 = getD1();
+    authSchemaReady = d1
+      .prepare(`
+        CREATE TABLE IF NOT EXISTS auth_attempts (
+          key_hash TEXT PRIMARY KEY,
+          window_start INTEGER NOT NULL DEFAULT 0,
+          failures INTEGER NOT NULL DEFAULT 0,
+          locked_until INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `)
+      .run()
+      .then(() => undefined)
+      .catch((error) => {
+        authSchemaReady = null;
+        throw error;
+      });
+  }
+
+  return authSchemaReady;
+}

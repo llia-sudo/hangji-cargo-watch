@@ -93,6 +93,10 @@ export default function TrackerApp() {
     setError("");
     try {
       const response = await fetch("/api/shipments", { cache: "no-store" });
+      if (response.status === 401) {
+        window.location.reload();
+        return;
+      }
       const data = (await response.json()) as { shipments?: Shipment[]; error?: string };
       if (!response.ok) throw new Error(data.error || "读取订单失败");
       setShipments(data.shipments ?? []);
@@ -166,6 +170,10 @@ export default function TrackerApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ shipment: draft }),
       });
+      if (response.status === 401) {
+        window.location.reload();
+        return;
+      }
       const data = (await response.json()) as { shipments?: Shipment[]; error?: string };
       if (!response.ok) throw new Error(data.error || "保存失败");
       setShipments(data.shipments ?? []);
@@ -203,6 +211,10 @@ export default function TrackerApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ shipments: importRows }),
       });
+      if (response.status === 401) {
+        window.location.reload();
+        return;
+      }
       const data = (await response.json()) as {
         shipments?: Shipment[];
         imported?: number;
@@ -226,6 +238,11 @@ export default function TrackerApp() {
     event.target.value = "";
   };
 
+  const signOut = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.reload();
+  };
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -240,6 +257,7 @@ export default function TrackerApp() {
         </nav>
         <div className="top-actions">
           <span className="avatar">AP</span>
+          <button className="signout-button" type="button" onClick={() => void signOut()}>退出</button>
         </div>
       </header>
 
