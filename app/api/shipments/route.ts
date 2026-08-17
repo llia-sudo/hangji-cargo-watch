@@ -1,4 +1,5 @@
 import { ensureShipmentsSchema, getD1 } from "@/db";
+import { attachScheduleHistory } from "@/db/shipment-history";
 import { hasValidRequestSession } from "@/app/lib/password-auth";
 
 export const dynamic = "force-dynamic";
@@ -38,8 +39,10 @@ const selectSql = `
     port_of_loading AS portOfLoading,
     port_of_discharge AS portOfDischarge,
     status,
+    baseline_etd AS baselineEtd,
     etd,
     atd,
+    baseline_eta AS baselineEta,
     eta,
     ata,
     delay_days AS delayDays,
@@ -47,23 +50,23 @@ const selectSql = `
     source_url AS sourceUrl,
     last_checked_at AS lastCheckedAt,
     notes,
+    archived_at AS archivedAt,
     created_at AS createdAt,
     updated_at AS updatedAt
   FROM shipments
-  ORDER BY
-    CASE status
-      WHEN '可能延期' THEN 0
-      WHEN '运输中' THEN 1
-      WHEN '待开船' THEN 2
-      WHEN '已到港' THEN 3
-      ELSE 4
-    END,
-    updated_at DESC,
-    id DESC
+  ORDER BY id DESC
 `;
 
 function clean(value: unknown) {
   return typeof value === "string" ? value.trim().slice(0, 240) : "";
+}
+
+function subtractDays(value: string, days: number) {
+  if (!value || days <= 0) return value;
+  const date = new Date(`${value.slice(0, 10)}T00:00:00Z`);
+  if (!Number.isFinite(date.getTime())) return value;
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
 }
 
 function normalizeShipment(input: ShipmentInput) {
@@ -95,15 +98,19 @@ function normalizeShipment(input: ShipmentInput) {
 function upsertStatement(input: ShipmentInput) {
   const d1 = getD1();
   const row = normalizeShipment(input);
+  const baselineEtd = row.etd || subtractDays(row.atd, row.delayDays);
+  const baselineEta = row.delayDays > 0
+    ? subtractDays(row.eta || row.ata, row.delayDays)
+    : row.eta || row.ata;
 
   return d1
     .prepare(`
       INSERT INTO shipments (
         order_no, customer_code, vessel_name, voyage, bill_of_lading,
         booking_no, container_no, port_of_loading, port_of_discharge,
-        status, etd, atd, eta, ata, delay_days, source, source_url,
+        status, baseline_etd, etd, atd, baseline_eta, eta, ata, delay_days, source, source_url,
         last_checked_at, notes, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(order_no) DO UPDATE SET
         customer_code = excluded.customer_code,
         vessel_name = excluded.vessel_name,
@@ -114,8 +121,16 @@ function upsertStatement(input: ShipmentInput) {
         port_of_loading = excluded.port_of_loading,
         port_of_discharge = excluded.port_of_discharge,
         status = excluded.status,
+        baseline_etd = CASE
+          WHEN shipments.baseline_etd = '' AND excluded.baseline_etd <> '' THEN excluded.baseline_etd
+          ELSE shipments.baseline_etd
+        END,
         etd = excluded.etd,
         atd = excluded.atd,
+        baseline_eta = CASE
+          WHEN shipments.baseline_eta = '' AND excluded.baseline_eta <> '' THEN excluded.baseline_eta
+          ELSE shipments.baseline_eta
+        END,
         eta = excluded.eta,
         ata = excluded.ata,
         delay_days = excluded.delay_days,
@@ -136,8 +151,10 @@ function upsertStatement(input: ShipmentInput) {
       row.portOfLoading,
       row.portOfDischarge,
       row.status,
+      baselineEtd,
       row.etd,
       row.atd,
+      baselineEta,
       row.eta,
       row.ata,
       row.delayDays,
@@ -165,8 +182,10 @@ async function seedIfEmpty() {
       containerNo: "EMCU1760509",
       portOfLoading: "SHANGHAI",
       status: "运输中",
+      etd: "2026-07-03",
       atd: "2026-07-06",
-      eta: "2026-08-12",
+      eta: "2026-08-15",
+      delayDays: 3,
       source: "Evergreen ShipmentLink",
       sourceUrl:
         "https://ct.shipmentlink.com/servlet/TDB1_CargoTracking.do",
@@ -205,8 +224,9 @@ export async function GET(request: Request) {
   try {
     await ensureShipmentsSchema();
     await seedIfEmpty();
-    const { results } = await getD1().prepare(selectSql).all();
-    return Response.json({ shipments: results });
+    const { results } = await getD1().prepare(selectSql).all<{ id: number }>();
+    const shipments = await attachScheduleHistory(results ?? []);
+    return Response.json({ shipments });
   } catch (error) {
     const message = error instanceof Error ? error.message : "读取订单失败";
     return Response.json({ error: message }, { status: 500 });
@@ -243,10 +263,199 @@ export async function POST(request: Request) {
     }
 
     await getD1().batch(inputs.map(upsertStatement));
-    const { results } = await getD1().prepare(selectSql).all();
-    return Response.json({ shipments: results, imported: inputs.length });
+    const { results } = await getD1().prepare(selectSql).all<{ id: number }>();
+    const shipments = await attachScheduleHistory(results ?? []);
+    return Response.json({ shipments, imported: inputs.length });
   } catch (error) {
     const message = error instanceof Error ? error.message : "保存订单失败";
+    return Response.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function PATCH(request: Request) {
+  if (!await hasValidRequestSession(request)) return unauthorized();
+  try {
+    await ensureShipmentsSchema();
+    const body = (await request.json()) as {
+      action?: "edit" | "archive";
+      id?: number;
+      shipment?: ShipmentInput;
+      orderNo?: string;
+      archived?: boolean;
+    };
+
+    if (body.action === "edit") {
+      const id = Number(body.id);
+      const row = normalizeShipment(body.shipment ?? {});
+      if (!Number.isInteger(id) || id <= 0 || !row.orderNo) {
+        return Response.json(
+          { error: "缺少有效的订单记录或订单号" },
+          { status: 400 }
+        );
+      }
+
+      const existing = await getD1()
+        .prepare(`
+          SELECT
+            id,
+            order_no AS orderNo,
+            vessel_name AS vesselName,
+            voyage,
+            bill_of_lading AS billOfLading,
+            booking_no AS bookingNo,
+            container_no AS containerNo,
+            port_of_loading AS portOfLoading,
+            port_of_discharge AS portOfDischarge,
+            source
+          FROM shipments
+          WHERE id = ?
+        `)
+        .bind(id)
+        .first<{
+          id: number;
+          orderNo: string;
+          vesselName: string;
+          voyage: string;
+          billOfLading: string;
+          bookingNo: string;
+          containerNo: string;
+          portOfLoading: string;
+          portOfDischarge: string;
+          source: string;
+        }>();
+
+      if (!existing) {
+        return Response.json({ error: "没有找到需要编辑的订单" }, { status: 404 });
+      }
+
+      const duplicate = await getD1()
+        .prepare("SELECT id FROM shipments WHERE order_no = ? AND id <> ?")
+        .bind(row.orderNo, id)
+        .first<{ id: number }>();
+      if (duplicate) {
+        return Response.json(
+          { error: `订单号 ${row.orderNo} 已被其他订单使用` },
+          { status: 409 }
+        );
+      }
+
+      const trackingKeysChanged = [
+        "vesselName",
+        "voyage",
+        "billOfLading",
+        "bookingNo",
+        "containerNo",
+        "portOfLoading",
+        "portOfDischarge",
+        "source",
+      ].some((key) => {
+        const field = key as keyof typeof existing;
+        return String(existing[field] ?? "") !== String(row[key as keyof typeof row] ?? "");
+      });
+
+      const result = await getD1()
+        .prepare(`
+          UPDATE shipments
+          SET
+            order_no = ?,
+            customer_code = ?,
+            vessel_name = ?,
+            voyage = ?,
+            bill_of_lading = ?,
+            booking_no = ?,
+            container_no = ?,
+            port_of_loading = ?,
+            port_of_discharge = ?,
+            status = ?,
+            baseline_etd = CASE
+              WHEN baseline_etd = '' AND ? <> '' THEN ?
+              ELSE baseline_etd
+            END,
+            etd = ?,
+            baseline_eta = CASE
+              WHEN baseline_eta = '' AND ? <> '' THEN ?
+              ELSE baseline_eta
+            END,
+            eta = ?,
+            source = ?,
+            source_url = CASE WHEN ? = 1 THEN '' ELSE source_url END,
+            last_checked_at = CASE WHEN ? = 1 THEN '' ELSE last_checked_at END,
+            notes = ?,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `)
+        .bind(
+          row.orderNo,
+          row.customerCode,
+          row.vesselName,
+          row.voyage,
+          row.billOfLading,
+          row.bookingNo,
+          row.containerNo,
+          row.portOfLoading,
+          row.portOfDischarge,
+          row.status,
+          row.etd,
+          row.etd,
+          row.etd,
+          row.eta,
+          row.eta,
+          row.eta,
+          row.source,
+          trackingKeysChanged ? 1 : 0,
+          trackingKeysChanged ? 1 : 0,
+          row.notes,
+          id
+        )
+        .run();
+
+      if (!result.meta.changes) {
+        return Response.json({ error: "订单信息没有保存" }, { status: 500 });
+      }
+
+      const { results } = await getD1().prepare(selectSql).all<{ id: number }>();
+      const shipments = await attachScheduleHistory(results ?? []);
+      return Response.json({
+        shipments,
+        edited: true,
+        id,
+        orderNo: row.orderNo,
+        trackingKeysChanged,
+      });
+    }
+
+    const orderNo = clean(body.orderNo).toUpperCase();
+    if (!orderNo || typeof body.archived !== "boolean") {
+      return Response.json(
+        { error: "缺少订单号或归档状态" },
+        { status: 400 }
+      );
+    }
+
+    const result = await getD1()
+      .prepare(`
+        UPDATE shipments
+        SET archived_at = CASE
+          WHEN ? = 1 THEN strftime('%Y-%m-%d %H:%M', 'now', '+8 hours')
+          ELSE ''
+        END,
+        updated_at = CURRENT_TIMESTAMP
+        WHERE order_no = ?
+      `)
+      .bind(body.archived ? 1 : 0, orderNo)
+      .run();
+    if (!result.meta.changes) {
+      return Response.json(
+        { error: `没有找到订单 ${orderNo}` },
+        { status: 404 }
+      );
+    }
+
+    const { results } = await getD1().prepare(selectSql).all<{ id: number }>();
+    const shipments = await attachScheduleHistory(results ?? []);
+    return Response.json({ shipments, archived: body.archived, orderNo });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "归档订单失败";
     return Response.json({ error: message }, { status: 500 });
   }
 }

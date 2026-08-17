@@ -27,7 +27,7 @@ const headerAliases: Record<keyof ImportedShipment, string[]> = {
   etd: ["ETD", "预计开船", "计划开船"],
   eta: ["ETA", "预计到港", "计划到港"],
   status: ["状态", "STATUS"],
-  source: ["数据来源", "SOURCE"],
+  source: ["船公司", "数据来源", "CARRIER", "SHIPPING LINE", "SOURCE"],
 };
 
 function normalizeHeader(value: string) {
@@ -268,9 +268,9 @@ export async function parseShipmentFile(file: File) {
 
 export function downloadTemplate() {
   const rows = [
-    ["订单号", "客户编号", "船名", "航次", "提单号", "Booking No.", "箱号", "起运港", "目的港", "ETD", "ETA"],
-    ["226GRD0390", "", "TAMPA TRIUMPH", "0789-043E", "SGH260014656", "", "EMCU1760509", "SHANGHAI", "", "", ""],
-    ["226GRD0664", "", "PANCON GLORY", "2623E", "AMIGL260343012A", "", "", "SHANGHAI", "INCHON", "", ""],
+    ["订单号", "客户编号", "船公司", "船名", "航次", "提单号", "Booking No.", "箱号", "起运港", "目的港", "ETD", "ETA"],
+    ["226GRD0390", "", "Evergreen", "TAMPA TRIUMPH", "0789-043E", "SGH260014656", "", "EMCU1760509", "SHANGHAI", "", "", ""],
+    ["226GRD0664", "", "PANCON", "PANCON GLORY", "2623E", "AMIGL260343012A", "", "", "SHANGHAI", "INCHON", "", ""],
   ];
   const csv = rows
     .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(","))

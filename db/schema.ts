@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const shipments = sqliteTable(
   "shipments",
@@ -15,8 +15,10 @@ export const shipments = sqliteTable(
     portOfLoading: text("port_of_loading").notNull().default(""),
     portOfDischarge: text("port_of_discharge").notNull().default(""),
     status: text("status").notNull().default("待查询"),
+    baselineEtd: text("baseline_etd").notNull().default(""),
     etd: text("etd").notNull().default(""),
     atd: text("atd").notNull().default(""),
+    baselineEta: text("baseline_eta").notNull().default(""),
     eta: text("eta").notNull().default(""),
     ata: text("ata").notNull().default(""),
     delayDays: integer("delay_days").notNull().default(0),
@@ -24,6 +26,7 @@ export const shipments = sqliteTable(
     sourceUrl: text("source_url").notNull().default(""),
     lastCheckedAt: text("last_checked_at").notNull().default(""),
     notes: text("notes").notNull().default(""),
+    archivedAt: text("archived_at").notNull().default(""),
     createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
@@ -37,3 +40,29 @@ export const authAttempts = sqliteTable("auth_attempts", {
   lockedUntil: integer("locked_until").notNull().default(0),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
+
+export const shipmentScheduleHistory = sqliteTable(
+  "shipment_schedule_history",
+  {
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    shipmentId: integer("shipment_id")
+      .notNull()
+      .references(() => shipments.id, { onDelete: "cascade" }),
+    checkedAt: text("checked_at").notNull(),
+    vesselName: text("vessel_name").notNull().default(""),
+    voyage: text("voyage").notNull().default(""),
+    status: text("status").notNull().default(""),
+    etd: text("etd").notNull().default(""),
+    atd: text("atd").notNull().default(""),
+    eta: text("eta").notNull().default(""),
+    ata: text("ata").notNull().default(""),
+    source: text("source").notNull().default(""),
+    createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  },
+  (table) => [
+    index("idx_shipment_schedule_history_shipment_checked").on(
+      table.shipmentId,
+      table.checkedAt
+    ),
+  ]
+);

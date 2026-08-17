@@ -59,8 +59,73 @@ export function ensureShipmentsSchema() {
         d1.prepare(
           "CREATE INDEX IF NOT EXISTS shipments_eta_idx ON shipments(eta)"
         ),
+        d1.prepare(`
+          CREATE TABLE IF NOT EXISTS shipment_schedule_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            shipment_id INTEGER NOT NULL,
+            checked_at TEXT NOT NULL,
+            vessel_name TEXT NOT NULL DEFAULT '',
+            voyage TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT '',
+            etd TEXT NOT NULL DEFAULT '',
+            atd TEXT NOT NULL DEFAULT '',
+            eta TEXT NOT NULL DEFAULT '',
+            ata TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (shipment_id) REFERENCES shipments(id) ON DELETE CASCADE
+          )
+        `),
+        d1.prepare(`
+          CREATE INDEX IF NOT EXISTS idx_shipment_schedule_history_shipment_checked
+          ON shipment_schedule_history(shipment_id, checked_at)
+        `),
+        d1.prepare("PRAGMA optimize"),
       ])
-      .then(() => undefined)
+      .then(async () => {
+        const columns = await d1
+          .prepare("PRAGMA table_info(shipments)")
+          .all<{ name: string }>();
+        const columnNames = new Set(
+          (columns.results ?? []).map((column) => column.name)
+        );
+        if (!columnNames.has("archived_at")) {
+          await d1
+            .prepare("ALTER TABLE shipments ADD COLUMN archived_at TEXT NOT NULL DEFAULT ''")
+            .run();
+        }
+        if (!columnNames.has("baseline_etd")) {
+          await d1
+            .prepare("ALTER TABLE shipments ADD COLUMN baseline_etd TEXT NOT NULL DEFAULT ''")
+            .run();
+        }
+        if (!columnNames.has("baseline_eta")) {
+          await d1
+            .prepare("ALTER TABLE shipments ADD COLUMN baseline_eta TEXT NOT NULL DEFAULT ''")
+            .run();
+        }
+        await d1.prepare(`
+          UPDATE shipments
+          SET
+            baseline_etd = CASE
+              WHEN baseline_etd <> '' THEN baseline_etd
+              WHEN etd <> '' THEN etd
+              WHEN atd <> '' AND delay_days > 0
+                THEN date(atd, '-' || delay_days || ' days')
+              ELSE ''
+            END,
+            baseline_eta = CASE
+              WHEN baseline_eta <> '' THEN baseline_eta
+              WHEN eta <> '' AND delay_days > 0
+                THEN date(eta, '-' || delay_days || ' days')
+              WHEN eta <> '' THEN eta
+              WHEN ata <> '' AND delay_days > 0
+                THEN date(ata, '-' || delay_days || ' days')
+              ELSE ''
+            END
+          WHERE baseline_etd = '' OR baseline_eta = ''
+        `).run();
+      })
       .catch((error) => {
         schemaReady = null;
         throw error;
