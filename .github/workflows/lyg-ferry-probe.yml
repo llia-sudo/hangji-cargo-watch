@@ -12,72 +12,101 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
         with:
           ref: lyg-ferry-probe
-      - name: Probe public LYG Ferry pages
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Inspect live LYG Ferry query with browser
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /tmp/lyg
-          UA='Mozilla/5.0 CargoWatch/1.0'
-          curl -L --fail --max-time 20 -A "$UA" -sS 'https://cargo.lygferry.com/biz/scheduleView.do' -o /tmp/lyg/schedule.html
-          curl -L --fail --max-time 20 -A "$UA" -sS 'https://cargo.lygferry.com/biz/scheduleMonthView.do' -o /tmp/lyg/month.html
+          python -m pip install -q selenium
+          python - <<'PY' > lyg-browser-result.txt
+          import json, time
+          from selenium import webdriver
+          from selenium.webdriver.common.by import By
+          from selenium.webdriver.chrome.options import Options
 
-          python - <<'PY' > lyg-probe-result.txt
-          from pathlib import Path
-          import re, subprocess
-          base='https://cargo.lygferry.com'
-          pages={n:Path('/tmp/lyg/'+n).read_text(errors='ignore') for n in ['schedule.html','month.html']}
-          for name,html in pages.items():
-              print(f'=== {name} FORMS ===')
-              for form in re.findall(r'<form\b[\s\S]*?</form>', html, re.I):
-                  head=form.split('>',1)[0]+'>'
-                  print(head[:1000])
-                  fields=[]
-                  for tag in re.findall(r'<(?:input|select|button)\b[^>]*>', form, re.I):
-                      nm=re.search(r'\b(?:name|id)=["\']([^"\']+)',tag,re.I)
-                      if nm: fields.append((nm.group(1), re.sub(r'\s+',' ',tag)[:500]))
-                  for k,t in fields[:120]: print('FIELD',k,t)
-              print(f'=== {name} INLINE SCRIPT HITS ===')
-              for script in re.findall(r'<script(?![^>]+src=)[^>]*>([\s\S]*?)</script>', html, re.I):
-                  if re.search(r'schedule|ajax|\.do|vsl|voy|pol|pod|search|grid|list', script, re.I):
-                      for line in script.splitlines():
-                          if re.search(r'schedule|ajax|\.do|vsl|voy|pol|pod|search|grid|list|url',line,re.I):
-                              print(re.sub(r'\s+',' ',line).strip()[:1800])
-          html='\n'.join(pages.values())
-          srcs=[]
-          for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', html, re.I):
-              if src.startswith('//'): url='https:'+src
-              elif src.startswith('http'): url=src
-              elif src.startswith('/'): url=base+src
-              else: url=base+'/'+src.lstrip('./')
-              if url not in srcs: srcs.append(url)
-          print('=== LINKED JS HITS ===')
-          for i,url in enumerate(srcs[:60]):
-              out=f'/tmp/lyg/js{i}.js'
-              subprocess.run(['curl','-L','--max-time','15','-A','Mozilla/5.0 CargoWatch/1.0','-sS',url,'-o',out], check=False)
-              text=Path(out).read_text(errors='ignore') if Path(out).exists() else ''
-              hits=[]
-              for line in text.splitlines():
-                  if re.search(r'schedule|ajax|\.do|vsl|voy|pol|pod|search|grid|list|url',line,re.I):
-                      hits.append(re.sub(r'\s+',' ',line).strip()[:1800])
-              if hits:
-                  print('JS',url)
-                  for line in hits[:100]: print(line)
-          print('=== EXACT CASE PAGE HITS ===')
-          for name,html in pages.items():
-              for pat in ['TEN JUPITER','26360E','26360','LIANYUNGANG','PYEONGTAEK']:
-                  if pat.upper() in html.upper(): print(name,pat,'FOUND')
+          opts=Options()
+          opts.add_argument('--headless=new')
+          opts.add_argument('--no-sandbox')
+          opts.add_argument('--disable-dev-shm-usage')
+          opts.add_argument('--window-size=1600,1200')
+          opts.set_capability('goog:loggingPrefs', {'performance':'ALL','browser':'ALL'})
+          d=webdriver.Chrome(options=opts)
+          try:
+              d.get('https://cargo.lygferry.com/biz/scheduleView.do')
+              time.sleep(3)
+              print('TITLE', d.title)
+              condi=d.find_element(By.ID,'condi_scheduleView')
+              print('=== CONDITION FIELDS ===')
+              for e in condi.find_elements(By.CSS_SELECTOR,'input,select,button'):
+                  print(json.dumps({
+                    'tag':e.tag_name,'id':e.get_attribute('id'),'name':e.get_attribute('name'),
+                    'type':e.get_attribute('type'),'value':e.get_attribute('value'),
+                    'dg':e.get_attribute('data-DG_value'),'class':e.get_attribute('class'),
+                    'text':e.text[:100]
+                  }, ensure_ascii=False))
+              print('=== CONDITION HTML ===')
+              print(condi.get_attribute('outerHTML')[:30000])
+
+              # Fill textual criteria where the page supports them. Route selectors
+              # are deliberately not guessed; we inspect their generated option data.
+              for name,val in [('VSL_NM','TEN JUPITER'),('VOYAGE_NO','26360E'),('VOYAGE_CD','26360E')]:
+                  els=condi.find_elements(By.CSS_SELECTOR,f'input[name="{name}"]')
+                  if els:
+                      d.execute_script("arguments[0].value=arguments[1]; arguments[0].dispatchEvent(new Event('change',{bubbles:true}));",els[0],val)
+              for name in ['LINE_CD','IO_KND_CD','POL','POD']:
+                  els=condi.find_elements(By.CSS_SELECTOR,f'input[name="{name}"]')
+                  if els:
+                      try:
+                          els[0].click(); time.sleep(0.8)
+                          print('=== POPUP AFTER',name,'===')
+                          body=d.find_element(By.TAG_NAME,'body').text
+                          matches=[line for line in body.splitlines() if any(k in line.upper() for k in ['LIANYUNGANG','PYEONGTAEK','LYG','EXPORT','IMPORT','OUT','IN'])]
+                          print('\n'.join(matches[:120]))
+                          # close selection layers with Escape where possible
+                          from selenium.webdriver.common.keys import Keys
+                          d.switch_to.active_element.send_keys(Keys.ESCAPE)
+                      except Exception as e:
+                          print('POPUP_ERROR',name,type(e).__name__,str(e)[:300])
+
+              # Query once with current/default carrier/direction/route values plus vessel/voyage.
+              buttons=d.find_elements(By.CSS_SELECTOR,'.btn_condiWrap_sand_scheduleView')
+              print('QUERY_BUTTONS',len(buttons))
+              if buttons:
+                  buttons[0].click(); time.sleep(4)
+              print('=== RESULT TEXT HITS ===')
+              body=d.find_element(By.TAG_NAME,'body').text
+              for line in body.splitlines():
+                  if any(k in line.upper() for k in ['TEN JUPITER','26360E','LIANYUNGANG','PYEONGTAEK']):
+                      print(line[:1000])
+
+              print('=== NETWORK scheduleViewList ===')
+              for entry in d.get_log('performance'):
+                  msg=json.loads(entry['message'])['message']
+                  if msg['method']=='Network.requestWillBeSent':
+                      req=msg['params']['request']
+                      if 'scheduleViewList.do' in req.get('url',''):
+                          print(json.dumps({'url':req.get('url'),'method':req.get('method'),'postData':req.get('postData','')},ensure_ascii=False))
+                  elif msg['method']=='Network.responseReceived':
+                      resp=msg['params']['response']
+                      if 'scheduleViewList.do' in resp.get('url',''):
+                          print('RESPONSE',json.dumps({'url':resp.get('url'),'status':resp.get('status'),'mimeType':resp.get('mimeType')},ensure_ascii=False))
+              print('=== BROWSER LOG ===')
+              for entry in d.get_log('browser'):
+                  print(entry)
+          finally:
+              d.quit()
           PY
 
-          echo '=== compact result ==='
-          sed -n '1,500p' lyg-probe-result.txt
-
+          sed -n '1,700p' lyg-browser-result.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add lyg-probe-result.txt
-          git commit -m 'Record LYG Ferry probe result' || true
+          git add lyg-browser-result.txt
+          git commit -m 'Record LYG Ferry browser probe' || true
           git push origin HEAD:lyg-ferry-probe
