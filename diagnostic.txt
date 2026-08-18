@@ -1,0 +1,28 @@
+
+=== /SailingDate.html GET 200 LEN 54770 ===
+FORM_FOUND True FORM_TEXT 您现在的位置：业务在线 ->在线查询 ->船期信息查询 请选择 1月 2月 3月 4月 5月 6月 7月 8月 9月 10月 11月 12月 按月查询 按月导出Excel 船代 船公司 英文船名 离港时间 到 航线 请选择 西非线 俄罗斯线 内支线 外贸线 日本 南韩 美西 日韩线 内贸 欧地 东南亚 非洲线 西亚线 查询 航线 船名（中/英） 航次(进口/出口) 计划到港时间 计划离港时间 船代 船公司 停靠码头 挂港信息 日本航线 海丰连云港 / SITC LIANYUNGANG CCA / CCA 2027-05-02 2027-05-08 新海丰集装箱 上海新海丰集装箱运输有限公司 新东方PSA 东京（日本） 九州线 海丰连云港 / SITC LIANYUNGANG WUHAN / CHONGQ 2025-12-31 2026-12-31 新海丰集装箱 上海新海丰集装箱运输有限公司 新东方PSA,新东方货柜 博多（日本） 日本关东线 海丰连云港 / SITC LIANYUNGANG SHANGHAI / NINGBO 2026-01-09 2026-12-31 新海丰集装箱 上海新海丰集装箱运输有限公司 新东方PSA,新东方货柜 横滨（日本） 外贸内支线 鹏鹭16 / PENGLU16 1116E / 1116N 2026-10-31 2026-11-01 外代 上海中谷物流股份有限公司 新东方PSA 黄埔（区）（中国）,中国大丰,营口（中国）,厦门（中国）,上海（中国） 青岛外贸内支线 惠舟66 / HUIZHOU66 3623 / 3624 2026-09-30 2026-09-30 外运 上海中谷物流股份有限公司 新东方货柜 青岛（中国）三期,青岛（中国）四期 青岛外贸内支线 富俊恒通 / FUJUNHENGTONG 3533 / 3534 2026-09-30 2026-09-30 外代 温岭市兴航海运有限公司 新东方货柜 青岛（中国）三期,青岛（中国）五期,青岛（中国）四期 青岛外贸内支线 惠舟66 / HUIZHOU66 3621 / 3622 2026-09-27 2026-09-27 外运 上海中谷物流股份有限公司 新东方货柜 青岛（中国）四期,青岛（中国）三期 青岛外贸内支线 富俊恒通 / FUJUNHENGTONG 3531 / 3532 2026-09-26 2026-09-26 外代 温岭市兴航海运有限公司 新东方货柜 青岛（中国）三期,青岛（中国）五期,青岛（中国）四期 内贸线 泛亚上海 / FAN YA SHANG HAI 211N / 211S 2026-09-23 2026-09-24 中远 中远海运集装箱运输有限公司 新东方货柜 钦州0（中国）,营口（中国）,营口9（中国）,营口8（中国）,营口7（中国）,营口6（中国）,营口5（中国）,营口0（中国）,钦州（中国）,钦州9（中国）,钦州8（中国）,钦州7（中国）,钦州6（中国）,钦州5（中国）,钦州1（中国） 青岛外贸内支线 富俊恒通 / FUJUNHENGTONG 3529 / 3530 2026-09-23 2026-09-23 外代 温岭市兴航海运有限公司 新东方货柜 青岛（中国）三期,青岛（中国）五期,青岛（中国）四期 青岛外贸内支线 惠舟66 / HUIZHOU66 3619 / 3620 2026-09-23 2026-09-23 外运 上海中谷物流股份有限公司 新东方货柜 青岛（中国）三期,青岛（中国）四期 青岛外贸内支线 惠舟66 / HUIZHOU66 3617 / 3618 2026-09-20 2026-09-20 外运 上海中谷物流股份有限公司 新东方货柜 青岛（中国）三期,青岛（中国）四期 第1页 共68页 首页 上一页 下一页 尾页
+VESSEL_FIELD $TextField$1 SUBMIT $LinkSubmit$0
+FIELD_NAMES ['service', 'service', 'service', 'sp', 'Form1', '$Hidden', '$Hidden$0', '$ListEdit', '$ListEdit', '$ListEdit', '$ListEdit', '$ListEdit', '$ListEdit', '$ListEdit', '$ListEdit', '$ListEdit', '$ListEdit', '$ListEdit', '$ListEdit', 'propertySelection2', '_linkSubmit', '$TextField', '$TextField$0', '$TextField$1', '$ValidDatePicker', '$ValidDatePicker$0', 'propertySelection1']
+POST 200 https://www.lygedi.com/SailingDate.html LEN 51550 HAS_TEN_JUPITER True
+HEADER_OR_INFO 航线 船名（中/英） 航次(进口/出口) 计划到港时间 计划离港时间 船代 船公司 停靠码头 挂港信息
+MATCH_ROW 南韩线 木星 / TEN JUPITER 26362W / 26363E 2026-08-29 2026-08-30 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国）
+MATCH_ROW 南韩线 木星 / TEN JUPITER 26361W / 26362E 2026-08-25 2026-08-26 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国）
+MATCH_ROW 南韩线 木星 / TEN JUPITER 26360W / 26361E 2026-08-22 2026-08-23 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国）
+MATCH_ROW 南韩线 木星 / TEN JUPITER 26359W / 26360E 2026-08-18 2026-08-19 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国）
+MATCH_ROW 南韩线 木星 / TEN JUPITER 26358W / 26359E 2026-08-15 2026-08-16 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国）
+MATCH_ROW 南韩线 木星 / TEN JUPITER 26357W / 26358E 2026-08-11 2026-08-12 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国）
+MATCH_ROW 南韩线 木星 / TEN JUPITER 26356W / 26357E 2026-08-08 2026-08-09 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国）
+MATCH_ROW 南韩线 木星 / TEN JUPITER 26355W / 26356E 2026-08-04 2026-08-05 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国）
+MATCH_ROW 南韩线 木星 / TEN JUPITER 26354W / 26355E 2026-08-01 2026-08-02 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国）
+MATCH_ROW 南韩线 木星 / TEN JUPITER 26353W / 26354E 2026-07-28 2026-07-29 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国）
+MATCH_ROW 南韩线 木星 / TEN JUPITER 26352W / 26353E 2026-07-25 2026-07-26 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国）
+MATCH_ROW 南韩线 木星 / TEN JUPITER 26351W / 26352E 2026-07-21 2026-07-22 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国）
+CONTEXT dth="29%" align="left" style="border-bottom:solid #aeafb0 1px"> 请选择 1月 2月 3月 4月 5月 6月 7月 8月 9月 10月 11月 12月 按月查询 按月导出Excel 船代 船公司 英文船名 离港时间 到 航线 请选择 西非线 俄罗斯线 内支线 外贸线 日本 南韩 美西 日韩线 内贸 欧地 东南亚 非洲线 西亚线 查询 航线 船名（中/英） 航次(进口/出口) 计划到港时间 计划离港时间 船代 船公司 停靠码头 挂港信息 南韩线 木星 / TEN JUPITER 26362W / 26363E 2026-08-29 2026-08-30 中韩轮渡物流 木星海运 新东方PSA 平泽（韩国） 南韩线 木星 / TEN JUPITER 26361W / 26362E
+
+=== /Sailing_ActDate.html GET 200 LEN 17917 ===
+FORM_FOUND True FORM_TEXT 您现在的位置：业务在线 ->在线查询 ->实际开航日查询 英文船名 船名码 英文船名 中文船名 航次 实际离港时间 实际靠泊时间 卸货开始时间 卸货结束时间 装货开始时间 装货结束时间 第页 共页 首页 上一页 下一页 尾页 注:此数据仅供参考,不作为其他依据！
+VESSEL_FIELD None SUBMIT $LinkSubmit$1
+FIELD_NAMES ['service', 'service', 'service', 'sp', 'Form1', '$Hidden', '$Hidden$0', '$Hidden$1', '$Hidden$2', 'textField2', '$Submit', '_linkSubmit']
+POST 200 https://www.lygedi.com/Sailing_ActDate.html LEN 17961 HAS_TEN_JUPITER False
+HEADER_OR_INFO 您现在的位置：业务在线 ->在线查询 ->实际开航日查询
+HEADER_OR_INFO 船名码 英文船名 中文船名 航次 实际离港时间 实际靠泊时间 卸货开始时间 卸货结束时间 装货开始时间 装货结束时间
