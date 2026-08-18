@@ -127,6 +127,34 @@ function shiftLabel(days: number, lateLabel: string) {
   return "按原计划";
 }
 
+function departureShiftDays(shipment: Shipment) {
+  return scheduleShiftDays(
+    shipment.atd || shipment.etd,
+    shipment.baselineEtd || shipment.etd
+  );
+}
+
+function arrivalShiftDays(shipment: Shipment) {
+  return scheduleShiftDays(
+    shipment.ata || shipment.eta,
+    shipment.baselineEta || shipment.eta
+  );
+}
+
+function shipmentHasScheduleDelay(shipment: Shipment) {
+  const hasBaseline = Boolean(shipment.baselineEtd || shipment.baselineEta);
+  return Boolean(
+    shipment.status.includes("延期") ||
+      departureShiftDays(shipment) > 0 ||
+      arrivalShiftDays(shipment) > 0 ||
+      (!hasBaseline && shipment.delayDays > 0)
+  );
+}
+
+function hasPortMismatchWarning(shipment: Shipment) {
+  return shipment.notes.includes("目的港信息不符");
+}
+
 function routeLabel(shipment: Shipment) {
   return `${shipment.portOfLoading || "起运港待补充"} → ${shipment.portOfDischarge || "目的港待补充"}`;
 }
@@ -328,9 +356,7 @@ export default function TrackerApp() {
     const active = current.filter((item) =>
       ["待开船", "运输中", "可能延期"].includes(item.status)
     ).length;
-    const delayed = current.filter(
-      (item) => item.status.includes("延期") || item.delayDays > 0
-    ).length;
+    const delayed = current.filter(shipmentHasScheduleDelay).length;
     const arrived = current.filter((item) => item.status === "已到港").length;
     const archived = shipments.length - total;
     return { total, active, delayed, arrived, archived };
@@ -345,7 +371,7 @@ export default function TrackerApp() {
       const filterMatch =
         filter === "全部" ||
         shipment.status === filter ||
-        (filter === "可能延期" && shipment.delayDays > 0);
+        (filter === "可能延期" && shipmentHasScheduleDelay(shipment));
       const searchMatch =
         !term ||
         [
@@ -536,7 +562,7 @@ export default function TrackerApp() {
           </article>
           <article className="summary-card delay-card">
             <span className="summary-icon">!</span>
-            <div><p>需要关注</p><strong>{summary.delayed}</strong><small>延期或 ETA 变动</small></div>
+            <div><p>需要关注</p><strong>{summary.delayed}</strong><small>ETD / ETA 延后或状态异常</small></div>
             <span className="trend-up">↗</span>
           </article>
           <article className="summary-card arrived-card">
@@ -549,7 +575,7 @@ export default function TrackerApp() {
         {summary.delayed > 0 && (
           <aside className="attention-banner" role="status">
             <span className="attention-mark">!</span>
-            <div><strong>{summary.delayed} 票订单需要关注</strong><p>存在延期、ETA 变动或卸箱节点未确认。</p></div>
+            <div><strong>{summary.delayed} 票订单需要关注</strong><p>存在延期、ETD / ETA 变动或卸箱节点未确认。</p></div>
             <button type="button" onClick={() => setFilter("可能延期")}>仅看异常 →</button>
           </aside>
         )}
@@ -610,10 +636,10 @@ export default function TrackerApp() {
                       <tr className={shipment.archivedAt ? "archived-row" : ""} key={shipment.id} onClick={() => setSelected(shipment)}>
                         <td><strong>{shipment.orderNo}</strong><small>{shipment.customerCode || "未填客户编号"}</small></td>
                         <td><span className="vessel-name">{shipment.vesselName || "待补充"}</span><span className="voyage-action"><small>{shipment.voyage || "航次待补充"}</small><button className="single-sync-button" type="button" disabled={syncing || Boolean(syncingOrderNo)} aria-label={`只查询 ${shipment.orderNo} ${shipment.vesselName} ${shipment.voyage}`} title="只查询这一票" onClick={(event) => { event.stopPropagation(); void syncOneShipment(shipment); }}><span className={syncingOrderNo === shipment.orderNo ? "spin" : ""}>↻</span>{syncingOrderNo === shipment.orderNo ? "查询中" : "查询"}</button></span></td>
-                        <td><span className="route-cell"><b>{shipment.portOfLoading || "—"}</b><i /><b>{shipment.portOfDischarge || "—"}</b></span></td>
-                        <td><span className={statusClass(shipment.status)}>{shipment.status}</span>{shipment.delayDays > 0 && <small className="delay-note">晚 {shipment.delayDays} 天</small>}</td>
-                        <td><strong className="date-value">{formatDate(shipment.atd || shipment.etd)}</strong><small>{shipment.atd ? "实际开船" : "计划开船"}</small></td>
-                        <td><strong className="date-value">{formatDate(shipment.ata || shipment.eta)}</strong><small>{shipment.ata ? "实际到港" : "预计到港"}</small></td>
+                        <td><span className="route-cell"><b>{shipment.portOfLoading || "—"}</b><i /><b>{shipment.portOfDischarge || "—"}</b></span>{hasPortMismatchWarning(shipment) && <small className="delay-note">目的港信息不符</small>}</td>
+                        <td><span className={statusClass(shipment.status)}>{shipment.status}</span></td>
+                        <td><strong className="date-value">{formatDate(shipment.atd || shipment.etd)}</strong><small>{shipment.atd ? "实际开船" : "计划开船"}</small>{departureShiftDays(shipment) !== 0 && <small className={departureShiftDays(shipment) > 0 ? "delay-note" : undefined}>{shiftLabel(departureShiftDays(shipment), shipment.atd ? "晚开" : "延后")}</small>}</td>
+                        <td><strong className="date-value">{formatDate(shipment.ata || shipment.eta)}</strong><small>{shipment.ata ? "实际到港" : "预计到港"}</small>{arrivalShiftDays(shipment) !== 0 && <small className={arrivalShiftDays(shipment) > 0 ? "delay-note" : undefined}>{shiftLabel(arrivalShiftDays(shipment), shipment.ata ? "晚到" : "延后")}</small>}</td>
                         <td><span className="source-name">{shipment.source || "手工录入"}</span><small>{shipment.lastCheckedAt ? `更新 ${shipment.lastCheckedAt.slice(5, 16)}` : "等待首次查询"}</small></td>
                         <td><span className="row-action-group"><button className="row-button" type="button" aria-label={`查看 ${shipment.orderNo}`} title="查看订单详情" onClick={(event) => { event.stopPropagation(); setSelected(shipment); }}>›</button><button className="edit-row-button" type="button" aria-label={`编辑 ${shipment.orderNo}`} title="编辑订单" onClick={(event) => { event.stopPropagation(); openEditShipment(shipment); }}>编辑</button><button className="archive-row-button" type="button" disabled={archivingOrderNo === shipment.orderNo} aria-label={`${shipment.archivedAt ? "恢复" : "归档"} ${shipment.orderNo}`} title={shipment.archivedAt ? "恢复到当前船次" : "归档船次"} onClick={(event) => { event.stopPropagation(); void setShipmentArchived(shipment, !shipment.archivedAt); }}>{archivingOrderNo === shipment.orderNo ? "处理中" : shipment.archivedAt ? "恢复" : "归档"}</button></span></td>
                       </tr>
