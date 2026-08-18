@@ -111,7 +111,9 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /findVesselByPrefix/);
   assert.match(tracking, /coscoSessionCookie/);
   assert.match(tracking, /queryCoscoGlobal/);
-  assert.match(tracking, /尚未发布相同船名航次/);
+  assert.match(tracking, /COSCO 官网返回 \${rows.length} 条船期记录/);
+  assert.match(tracking, /没有目标航次/);
+  assert.match(tracking, /没有匹配 \${shipment.portOfLoading} → \${shipment.portOfDischarge}/);
   assert.match(tracking, /ONE 全球官网船期/);
   assert.match(tracking, /HMM 全球官网船期/);
   assert.match(tracking, /Yang Ming 全球官网船期/);
@@ -122,6 +124,12 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /BTbyvslvoy/);
   assert.match(tracking, /parseSinotransTimes/);
   assert.match(tracking, /中外运官方船名库精确匹配后的智能回退/);
+  assert.match(tracking, /discoverUnknownCarrierByOfficialSchedule/);
+  assert.match(tracking, /candidateIds = \["cosco", "one", "hmm", "yang-ming", "maersk", "sinotrans"\]/);
+  assert.doesNotMatch(tracking, /carrier = sinotransVessel/);
+  assert.match(tracking, /persistedQuerySource/);
+  assert.match(tracking, /沿用上次成功的/);
+  assert.match(tracking, /TrackingFailureCategory/);
   assert.match(tracking, /queryOne/);
   assert.match(tracking, /queryHmm/);
   assert.match(tracking, /data\.RTN_DATA\?\.boardList \?\? data\.boardList/);
@@ -178,6 +186,15 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(shipmentApi, /WHERE id = \?/);
   assert.match(shipmentApi, /trackingKeysChanged/);
   assert.match(carriers, /sharedCarrierFallbacks/);
+  assert.match(carriers, /normalizeSource/);
+  assert.match(carriers, /Boolean\(aliasKey && sourceKey\.includes\(aliasKey\)\)/);
+  assert.match(carriers, /detectQuerySourceCarrier/);
+  assert.ok(
+    carriers.indexOf("if (container)") < carriers.indexOf("return carrierFromSource(input.source)")
+  );
+  assert.match(shipmentApi, /sailingIdentityChanged/);
+  assert.match(shipmentApi, /atd = CASE WHEN \? = 1 THEN '' ELSE atd END/);
+  assert.match(shipmentApi, /ata = CASE WHEN \? = 1 THEN '' ELSE ata END/);
   assert.match(carriers, /carrierId: "zim",[\s\S]*sourceCarrierIds: \["msc"\]/);
   assert.match(carriers, /Gemini Cooperation/);
   assert.match(carriers, /Ocean Alliance 共舱/);

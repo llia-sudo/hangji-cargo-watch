@@ -3,6 +3,7 @@ import {
   carriers,
   carrierTrackingUrl,
   detectCarrier,
+  detectQuerySourceCarrier,
   sharedCarrierFallbackSources,
 } from "@/app/lib/carriers";
 import {
@@ -1145,11 +1146,27 @@ async function queryCoscoGlobal(
   const voyageKey = identifier(shipment.voyage);
   const groups: CoscoGlobalSchedule[][] = [];
   for (const row of rows) {
-    if (row.voy || !groups.length) groups.push([row]);
-    else groups.at(-1)?.push(row);
+    const current = groups.at(-1);
+    if (!current) {
+      groups.push([row]);
+      continue;
+    }
+    const rowVoyage = row.voy?.trim() ?? "";
+    const currentVoyage = current.find((item) => item.voy)?.voy?.trim() ?? "";
+    // COSCO can repeat the same voyage on every port row. Repeating the same
+    // voyage must not split one physical sailing into one-port groups.
+    if (
+      rowVoyage &&
+      currentVoyage &&
+      identifier(rowVoyage) !== identifier(currentVoyage)
+    ) {
+      groups.push([row]);
+    } else {
+      current.push(row);
+    }
   }
   const exactGroup = groups.find((group) =>
-    (group[0]?.voy ?? "")
+    (group.find((row) => row.voy)?.voy ?? "")
       .split("/")
       .some((voyage) => identifier(voyage) === voyageKey)
   );
@@ -1197,7 +1214,23 @@ async function queryCoscoGlobal(
     ? exactGroup
     : aliasGroups[0]?.group;
   if (!voyageRows) {
-    throw new Error("COSCO 全球官网已查询，但尚未发布相同船名航次或可信共舱别名");
+    const returnedVoyages = Array.from(new Set(
+      groups.flatMap((group) =>
+        (group.find((row) => row.voy)?.voy ?? "")
+          .split("/")
+          .map((voyage) => voyage.trim())
+          .filter(Boolean)
+      )
+    ));
+    if (!exactGroup) {
+      const sample = returnedVoyages.slice(0, 8).join("、");
+      throw new Error(
+        `COSCO 官网返回 ${rows.length} 条船期记录，但没有目标航次 ${shipment.voyage}${sample ? `；本次返回航次：${sample}` : ""}`
+      );
+    }
+    throw new Error(
+      `COSCO 官网已找到目标航次 ${shipment.voyage}，但没有匹配 ${shipment.portOfLoading} → ${shipment.portOfDischarge} 的有序港序`
+    );
   }
 
   const header = voyageRows[0];
@@ -2104,12 +2137,68 @@ function cachedCarrierQuery(
   return request;
 }
 
+type TrackingFailureCategory =
+  | "TIMEOUT"
+  | "VESSEL_NOT_FOUND"
+  | "VOYAGE_NOT_FOUND"
+  | "PORT_MISMATCH"
+  | "REMOTE_ERROR"
+  | "PARSE_ERROR"
+  | "UNKNOWN";
+
+function trackingErrorDetail(error: unknown): {
+  category: TrackingFailureCategory;
+  reason: string;
+} {
+  if (error instanceof Error && error.name === "AbortError") {
+    return { category: "TIMEOUT", reason: "船公司官网响应超时" };
+  }
+  const reason = error instanceof Error ? error.message : "查询失败";
+  if (/没有找到船名|船名库没有找到|无法识别船/i.test(reason)) {
+    return { category: "VESSEL_NOT_FOUND", reason };
+  }
+  if (/没有相同航次|未找到相同船名航次|没有目标航次|未命中/i.test(reason)) {
+    return { category: "VOYAGE_NOT_FOUND", reason };
+  }
+  if (/港序|启运港|目的港/i.test(reason)) {
+    return { category: "PORT_MISMATCH", reason };
+  }
+  if (/返回 \d{3}|服务器|官网返回/i.test(reason)) {
+    return { category: "REMOTE_ERROR", reason };
+  }
+  if (/安全校验|没有返回船期数据|查询会话/i.test(reason)) {
+    return { category: "PARSE_ERROR", reason };
+  }
+  return { category: "UNKNOWN", reason };
+}
+
 function trackingErrorReason(error: unknown) {
-  return error instanceof Error && error.name === "AbortError"
-    ? "船公司官网响应超时"
-    : error instanceof Error
-      ? error.message
-      : "查询失败";
+  return trackingErrorDetail(error).reason;
+}
+
+async function discoverUnknownCarrierByOfficialSchedule(
+  shipment: TrackingShipment,
+  session: TrackingSession
+) {
+  // Only completely unknown vessels fan out. Each candidate has to pass its
+  // existing strict vessel + voyage + ordered POL/POD query. A vessel merely
+  // appearing in one company's vessel list is not enough to claim the order.
+  const candidateIds = ["cosco", "one", "hmm", "yang-ming", "maersk", "sinotrans"];
+  const candidates = candidateIds
+    .map((id) => carriers.find((carrier) => carrier.id === id))
+    .filter((carrier): carrier is Carrier => Boolean(carrier));
+  const attempts = candidates.map(async (sourceCarrier) => {
+    const update = await cachedCarrierQuery(sourceCarrier, shipment, session, {
+      allowVoyageAlias: false,
+      sourceCarrier,
+    });
+    return { carrier: sourceCarrier, update };
+  });
+  const winner = Promise.any(attempts).catch(() => undefined);
+  const timeout = new Promise<undefined>((resolve) =>
+    setTimeout(() => resolve(undefined), 12_000)
+  );
+  return Promise.race([winner, timeout]);
 }
 
 export async function syncShipment(
@@ -2125,13 +2214,43 @@ export async function syncShipment(
         shipment,
         session
       ).catch(() => undefined);
-      const sinotransVessel = await findSinotransVessel(shipment).catch(
-        () => undefined
+      const officialDiscoveryPromise = discoverUnknownCarrierByOfficialSchedule(
+        shipment,
+        session
       );
-      carrier = sinotransVessel
-        ? carriers.find((item) => item.id === "sinotrans")
-        : undefined;
-      if (!carrier) {
+      const first = await Promise.race([
+        onlineIdentificationPromise.then((value) => ({ type: "online" as const, value })),
+        officialDiscoveryPromise.then((value) => ({ type: "official" as const, value })),
+      ]);
+      if (first.type === "official" && first.value) {
+        carrier = first.value.carrier;
+        return {
+          ok: true,
+          orderNo: shipment.orderNo,
+          message: `官方船期交叉识别为 ${carrier.shortName}，查询成功`,
+          update: {
+            ...first.value.update,
+            notes: `未知船公司官方交叉识别：${carrier.shortName} 的官网同时匹配船名、航次及有序两港。${first.value.update.notes}`,
+          },
+        };
+      }
+      if (first.type === "online" && first.value) {
+        onlineIdentification = first.value;
+        carrier = first.value.carrier;
+      } else {
+        const officialMatch = await officialDiscoveryPromise;
+        if (officialMatch) {
+          carrier = officialMatch.carrier;
+          return {
+            ok: true,
+            orderNo: shipment.orderNo,
+            message: `官方船期交叉识别为 ${carrier.shortName}，查询成功`,
+            update: {
+              ...officialMatch.update,
+              notes: `未知船公司官方交叉识别：${carrier.shortName} 的官网同时匹配船名、航次及有序两港。${officialMatch.update.notes}`,
+            },
+          };
+        }
         onlineIdentification = await onlineIdentificationPromise;
         carrier = onlineIdentification?.carrier;
       }
@@ -2143,6 +2262,41 @@ export async function syncShipment(
         orderNo: shipment.orderNo,
         message: "本地规则和联网搜索均未找到可信的船公司，请补充箱号、提单号或航线",
       };
+    }
+
+    const persistedQuerySource = detectQuerySourceCarrier(shipment.source);
+    if (
+      persistedQuerySource &&
+      persistedQuerySource.id !== carrier.id &&
+      supportsAutomaticCarrierQuery(persistedQuerySource) &&
+      /回退/.test(shipment.source)
+    ) {
+      try {
+        const preferredUpdate = await cachedCarrierQuery(
+          persistedQuerySource,
+          shipment,
+          session,
+          {
+            allowVoyageAlias: true,
+            primaryCarrier: carrier,
+            sourceCarrier: persistedQuerySource,
+          }
+        );
+        const partnerVoyage = preferredUpdate.voyage;
+        return {
+          ok: true,
+          orderNo: shipment.orderNo,
+          message: `沿用上次成功的 ${persistedQuerySource.shortName} 快速查询源`,
+          update: {
+            ...preferredUpdate,
+            voyage: shipment.voyage,
+            source: `${preferredUpdate.source}（智能回退）`,
+            notes: `快速查询：沿用上次成功来源 ${persistedQuerySource.shortName}${partnerVoyageNote(shipment.voyage, partnerVoyage)}。${preferredUpdate.notes}`,
+          },
+        };
+      } catch {
+        // Remembered fast source no longer works; continue with primary + normal fallbacks.
+      }
     }
 
     const fallback = sharedCarrierFallbackSources(carrier.id);

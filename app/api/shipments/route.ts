@@ -352,6 +352,15 @@ export async function PATCH(request: Request) {
         const field = key as keyof typeof existing;
         return String(existing[field] ?? "") !== String(row[key as keyof typeof row] ?? "");
       });
+      const sailingIdentityChanged = [
+        "vesselName",
+        "voyage",
+        "portOfLoading",
+        "portOfDischarge",
+      ].some((key) => {
+        const field = key as keyof typeof existing;
+        return String(existing[field] ?? "") !== String(row[key as keyof typeof row] ?? "");
+      });
 
       const result = await getD1()
         .prepare(`
@@ -372,11 +381,13 @@ export async function PATCH(request: Request) {
               ELSE baseline_etd
             END,
             etd = ?,
+            atd = CASE WHEN ? = 1 THEN '' ELSE atd END,
             baseline_eta = CASE
               WHEN baseline_eta = '' AND ? <> '' THEN ?
               ELSE baseline_eta
             END,
             eta = ?,
+            ata = CASE WHEN ? = 1 THEN '' ELSE ata END,
             source = ?,
             source_url = CASE WHEN ? = 1 THEN '' ELSE source_url END,
             last_checked_at = CASE WHEN ? = 1 THEN '' ELSE last_checked_at END,
@@ -398,9 +409,11 @@ export async function PATCH(request: Request) {
           row.etd,
           row.etd,
           row.etd,
+          sailingIdentityChanged ? 1 : 0,
           row.eta,
           row.eta,
           row.eta,
+          sailingIdentityChanged ? 1 : 0,
           row.source,
           trackingKeysChanged ? 1 : 0,
           trackingKeysChanged ? 1 : 0,

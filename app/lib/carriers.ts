@@ -473,19 +473,25 @@ function startsWithAny(value: string, prefixes: string[]) {
   return prefixes.some((prefix) => value.startsWith(compact(prefix)));
 }
 
-function carrierFromSource(source?: string) {
+export function detectQuerySourceCarrier(source?: string) {
   const sourceKey = normalizeSource(source);
   if (!sourceKey) return undefined;
   const genericSources = new Set(["手工录入", "EXCEL导入", "自动识别"]);
   if (genericSources.has(sourceKey)) return undefined;
-  const fallbackSource = sourceKey.includes("智能回退") || sourceKey.includes("共舱回退");
-  if (fallbackSource) return undefined;
   return carriers.find((carrier) =>
     carrier.aliases.some((alias) => {
       const aliasKey = normalizeSource(alias);
       return Boolean(aliasKey && sourceKey.includes(aliasKey));
     })
   );
+}
+
+function carrierFromSource(source?: string) {
+  const sourceKey = normalizeSource(source);
+  if (!sourceKey) return undefined;
+  const fallbackSource = sourceKey.includes("智能回退") || sourceKey.includes("共舱回退");
+  if (fallbackSource) return undefined;
+  return detectQuerySourceCarrier(source);
 }
 
 export function detectCarrier(input: CarrierDetectionInput) {
