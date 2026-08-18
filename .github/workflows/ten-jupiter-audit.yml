@@ -1,13 +1,12 @@
 name: TEN JUPITER read-only replay audit
 
 on:
-  push:
-    branches: [deploy-audit]
-    paths:
-      - .github/workflows/ten-jupiter-audit.yml
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   audit:
@@ -15,8 +14,6 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: deploy-audit
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -140,17 +137,4 @@ jobs:
 
       - name: Replay current production logic without writeback
         run: |
-          set +e
-          npm exec --yes --package=tsx@4 -- tsx ten-jupiter-audit-runner.ts > ten-jupiter-audit.txt 2>&1
-          code=$?
-          echo "AUDIT_EXIT_CODE=$code" >> ten-jupiter-audit.txt
-          exit 0
-
-      - name: Publish audit output to deploy-audit branch
-        run: |
-          rm -f ten-jupiter-audit-runner.ts
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f ten-jupiter-d1.json ten-jupiter-audit.txt
-          git commit -m "Record TEN JUPITER read-only replay" || exit 0
-          git push origin HEAD:deploy-audit
+          npm exec --yes --package=tsx@4 -- tsx ten-jupiter-audit-runner.ts
