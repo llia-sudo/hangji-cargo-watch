@@ -1,3 +1,4 @@
+# Temporary guarded patcher; removed after validation.
 from pathlib import Path
 
 
