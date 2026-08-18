@@ -22,7 +22,14 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply UI readability refresh
-        run: python scripts/apply-ui-readability-refresh.py
+        run: |
+          python scripts/apply-ui-readability-refresh.py
+          python - <<'PY'
+          from pathlib import Path
+          for name in ["app/TrackerApp.tsx", "app/globals.css", "tests/cargo-watch.test.mjs"]:
+              path = Path(name)
+              path.write_text(path.read_text(encoding="utf-8").rstrip() + "\n", encoding="utf-8")
+          PY
       - run: npm ci
       - run: npm test
       - run: git diff --check
