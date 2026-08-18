@@ -1,1 +1,1 @@
-Trigger query-core PR validation workflow after the base-branch workflow is present.
+Trigger query-core PR validation workflow with the robust Python patcher.
