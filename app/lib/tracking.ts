@@ -764,11 +764,7 @@ export async function querySinotrans(
     voyage: shipment.voyage,
     portOfLoading: pair.pol.portName,
     portOfDischarge: pair.pod.portName,
-    status: atd
-      ? scheduleStatus(etd, atd, eta, ata)
-      : etd && etd >= chinaTimestamp()
-        ? "待开船"
-        : "可能延期",
+    status: scheduleStatus(etd, atd, eta, ata),
     baselineEtd,
     etd,
     atd,
@@ -1260,17 +1256,7 @@ async function queryCoscoGlobal(
       : shipment.ata && shipment.ata <= now
         ? shipment.ata
         : "";
-  const status = ata
-    ? "已到港"
-    : atd
-      ? eta && eta < now
-        ? "可能延期"
-        : "运输中"
-      : etd && etd >= now
-        ? "待开船"
-        : eta && eta >= now
-          ? "运输中"
-          : "可能延期";
+  const status = scheduleStatus(etd, atd, eta, ata);
   const delayDays = eta
     ? Math.max(shipment.delayDays, dayDifference(eta, shipment.eta))
     : etd

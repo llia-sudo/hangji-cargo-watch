@@ -274,3 +274,19 @@ test("expired ETD without ATD is shown as estimated in transit", async () => {
   assert.match(css, /Current sailings actions and estimated transit 2026-08-18/);
   assert.match(css, /\.panel-primary-actions \.button/);
 });
+
+test("carrier-specific schedule status uses estimated in transit", async () => {
+  const tracking = await readFile(new URL("app/lib/tracking.ts", root), "utf8");
+  assert.match(
+    tracking,
+    /export async function querySinotrans[\s\S]*?status: scheduleStatus\(etd, atd, eta, ata\),[\s\S]*?source: "中外运集运官网船期"/
+  );
+  assert.match(
+    tracking,
+    /async function queryPancon[\s\S]*?const status = scheduleStatus\(etd, atd, eta, ata\);[\s\S]*?source: "PANCON 官网船期"/
+  );
+  assert.match(
+    tracking,
+    /async function queryCoscoGlobal[\s\S]*?const status = scheduleStatus\(etd, atd, eta, ata\);[\s\S]*?source: "COSCO eLines 全球官网船期"/
+  );
+});
