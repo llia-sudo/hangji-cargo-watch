@@ -20,11 +20,23 @@ jobs:
           cache: npm
       - run: npm ci
 
-      - name: Read current order from D1 (read only)
+      - name: Read current order from D1 if permitted, otherwise use supplied fields
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          npx wrangler d1 execute hangji-cargo-watch --remote --json --command "SELECT id, order_no AS orderNo, carrier_id AS carrierId, preferred_query_source AS preferredQuerySource, vessel_name AS vesselName, voyage, bill_of_lading AS billOfLading, booking_no AS bookingNo, container_no AS containerNo, port_of_loading AS portOfLoading, port_of_discharge AS portOfDischarge, status, baseline_etd AS baselineEtd, etd, atd, baseline_eta AS baselineEta, eta, ata, delay_days AS delayDays, source, source_url AS sourceUrl, last_checked_at AS lastCheckedAt, notes, archived_at AS archivedAt, updated_at AS updatedAt FROM shipments WHERE order_no = '226GRD0771' LIMIT 1;" > ten-jupiter-d1.json
+          set +e
+          npx wrangler d1 execute hangji-cargo-watch --remote --json --command "SELECT id, order_no AS orderNo, carrier_id AS carrierId, preferred_query_source AS preferredQuerySource, vessel_name AS vesselName, voyage, bill_of_lading AS billOfLading, booking_no AS bookingNo, container_no AS containerNo, port_of_loading AS portOfLoading, port_of_discharge AS portOfDischarge, status, baseline_etd AS baselineEtd, etd, atd, baseline_eta AS baselineEta, eta, ata, delay_days AS delayDays, source, source_url AS sourceUrl, last_checked_at AS lastCheckedAt, notes, archived_at AS archivedAt, updated_at AS updatedAt FROM shipments WHERE order_no = '226GRD0771' LIMIT 1;" > ten-jupiter-d1.json 2> ten-jupiter-d1-error.log
+          code=$?
+          if [ "$code" -ne 0 ] || [ ! -s ten-jupiter-d1.json ]; then
+            echo "D1_READ_UNAVAILABLE exit=$code"
+            cat ten-jupiter-d1-error.log || true
+            cat > ten-jupiter-d1.json <<'EOF'
+          [{"results":[{"id":0,"orderNo":"226GRD0771","carrierId":"","preferredQuerySource":"","vesselName":"TEN JUPITER","voyage":"26360E","billOfLading":"LYFRLYPF8266606","bookingNo":"","containerNo":"","portOfLoading":"LIANYUNGANG","portOfDischarge":"PYEONGTAEK","status":"待查询","baselineEtd":"","etd":"","atd":"","baselineEta":"","eta":"","ata":"","delayDays":0,"source":"手工录入","sourceUrl":"","lastCheckedAt":"","notes":"","archivedAt":"","updatedAt":""}]}]
+          EOF
+          else
+            echo "D1_READ_OK"
+          fi
+          exit 0
 
       - name: Create read-only replay harness
         run: |
@@ -48,7 +60,7 @@ jobs:
           const row = Array.isArray(raw)
             ? raw.flatMap((item: any) => item?.results ?? [])[0]
             : raw?.results?.[0];
-          if (!row) throw new Error("D1 did not return order 226GRD0771");
+          if (!row) throw new Error("No usable input row for 226GRD0771");
 
           const originalFetch = globalThis.fetch.bind(globalThis);
           const start = performance.now();
@@ -109,7 +121,7 @@ jobs:
           const { syncShipment, createTrackingSession } = await import("./app/lib/tracking.ts");
 
           console.log("=== TEN JUPITER READ-ONLY REPLAY ===");
-          console.log("D1 current row:");
+          console.log("Input row used:");
           console.log(JSON.stringify(row, null, 2));
           console.log("\nSTEP 1/2 local detectCarrier result:");
           const localCarrier = detectCarrier(row);
