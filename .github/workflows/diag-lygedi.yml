@@ -7,20 +7,20 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   inspect:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Fetch sailing page and inspect requests
         shell: bash
         run: |
-          set -euxo pipefail
-          python - <<'PY'
+          set -euo pipefail
+          python - <<'PY' > /tmp/diag.txt 2>&1
           import re, requests
           from urllib.parse import urljoin
-
           url='https://www.lygedi.com/SailingDate.html'
           s=requests.Session()
           headers={
@@ -37,19 +37,15 @@ jobs:
           for enc in [r.encoding,'utf-8','gb18030','gbk']:
             if not enc: continue
             try:
-              text=raw.decode(enc)
-              if '船期' in text or 'Sailing' in text or '<html' in text.lower():
-                print('DECODED_AS', enc)
-                break
-            except Exception:
-              pass
-          if text is None:
-            text=raw.decode('utf-8','replace')
+              candidate=raw.decode(enc)
+              if '船期' in candidate or 'Sailing' in candidate or '<html' in candidate.lower():
+                text=candidate; print('DECODED_AS', enc); break
+            except Exception: pass
+          if text is None: text=raw.decode('utf-8','replace')
           print('HTML_LEN', len(text))
-          print('HTML_HEAD_START')
-          print(text[:12000])
-          print('HTML_HEAD_END')
-
+          print('HTML_START')
+          print(text[:20000])
+          print('HTML_END')
           scripts=re.findall(r'<script[^>]+src=[\"\']([^\"\']+)', text, flags=re.I)
           forms=re.findall(r'<form[^>]+action=[\"\']([^\"\']+)', text, flags=re.I)
           print('FORMS', forms)
@@ -58,14 +54,24 @@ jobs:
             jsurl=urljoin(r.url, src)
             try:
               jr=s.get(jsurl,headers=headers,timeout=30)
-              print('\nJS', jsurl, 'STATUS', jr.status_code, 'TYPE', jr.headers.get('content-type'))
               jtxt=jr.content.decode(jr.encoding or 'utf-8','replace')
-              if any(k.lower() in jtxt.lower() for k in ['sailing','船名','vessel','ajax','shipname','voyage']):
-                print('JS_MATCH_START')
-                for line in jtxt.splitlines():
-                  if any(k.lower() in line.lower() for k in ['sailing','船名','vessel','ajax','shipname','voyage','url:','$.post','$.get']):
-                    print(line[:2000])
-                print('JS_MATCH_END')
+              print('\nJS', jsurl, 'STATUS', jr.status_code, 'LEN', len(jtxt))
+              for line in jtxt.splitlines():
+                if any(k.lower() in line.lower() for k in ['sailing','船名','vessel','ajax','shipname','voyage','url:','$.post','$.get']):
+                  print(line[:3000])
             except Exception as e:
               print('JS_ERROR', jsurl, repr(e))
           PY
+          cat /tmp/diag.txt
+      - name: Publish diagnostic result branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git checkout --orphan diag-lygedi-result
+          git rm -rf . >/dev/null 2>&1 || true
+          cp /tmp/diag.txt diagnostic.txt
+          git add diagnostic.txt
+          git commit -m 'Publish LYG EDI diagnostic result'
+          git push --force origin diag-lygedi-result
