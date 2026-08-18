@@ -2230,7 +2230,7 @@ async function discoverUnknownCarrierByOfficialSchedule(
   });
   const winner = Promise.any(attempts).catch(() => undefined);
   const timeout = new Promise<undefined>((resolve) =>
-    setTimeout(() => resolve(undefined), 12_000)
+    setTimeout(() => resolve(undefined), 8_000)
   );
   return Promise.race([winner, timeout]);
 }
@@ -2278,61 +2278,41 @@ export async function syncShipment(
     }
 
     if (!carrier) {
-      const onlineIdentificationPromise = findCarrierOnline(
-        shipment,
-        session
-      ).catch(() => undefined);
-      const officialDiscoveryPromise = discoverUnknownCarrierByOfficialSchedule(
+      // Layer 2: known official sources get a bounded first chance. This keeps
+      // ordinary unknown-vessel checks deterministic and evidence-driven.
+      const officialMatch = await discoverUnknownCarrierByOfficialSchedule(
         shipment,
         session
       );
-      const first = await Promise.race([
-        onlineIdentificationPromise.then((value) => ({ type: "online" as const, value })),
-        officialDiscoveryPromise.then((value) => ({ type: "official" as const, value })),
-      ]);
-      if (first.type === "official" && first.value) {
-        carrier = first.value.carrier;
+      if (officialMatch) {
+        carrier = officialMatch.carrier;
         return {
           ok: true,
           orderNo: shipment.orderNo,
           message: `官方船期交叉识别为 ${carrier.shortName}，查询成功`,
           update: {
-            ...first.value.update,
+            ...officialMatch.update,
             carrierId: carrier.id,
             preferredQuerySource: carrier.id,
-            notes: `未知船公司官方交叉识别：${carrier.shortName} 官网已验证船名、航次及起运港；目的港匹配状态以本次查询备注为准。${first.value.update.notes}`,
+            notes: `第二层官方交叉识别：${carrier.shortName} 官网已验证船名、航次及起运港；目的港匹配状态以本次查询备注为准。${officialMatch.update.notes}`,
           },
         };
       }
-      if (first.type === "online" && first.value) {
-        onlineIdentification = first.value;
-        carrier = first.value.carrier;
-      } else {
-        const officialMatch = await officialDiscoveryPromise;
-        if (officialMatch) {
-          carrier = officialMatch.carrier;
-          return {
-            ok: true,
-            orderNo: shipment.orderNo,
-            message: `官方船期交叉识别为 ${carrier.shortName}，查询成功`,
-            update: {
-              ...officialMatch.update,
-              carrierId: carrier.id,
-              preferredQuerySource: carrier.id,
-              notes: `未知船公司官方交叉识别：${carrier.shortName} 官网已验证船名、航次及起运港；目的港匹配状态以本次查询备注为准。${officialMatch.update.notes}`,
-            },
-          };
-        }
-        onlineIdentification = await onlineIdentificationPromise;
-        carrier = onlineIdentification?.carrier;
-      }
+
+      // Layer 3: only after local rules/history and known official sources fail,
+      // search the wider web for either a known carrier or a credible new
+      // carrier/source candidate. The online module has its own strict budget.
+      onlineIdentification = await findCarrierOnline(shipment, session).catch(
+        () => undefined
+      );
+      carrier = onlineIdentification?.carrier;
     }
     if (!carrier) {
       return {
         ok: false,
         identified: false,
         orderNo: shipment.orderNo,
-        message: "本地规则和联网搜索均未找到可信的船公司，请补充箱号、提单号或航线",
+        message: "三层识别均未找到可信的船公司或查询来源，请补充箱号、提单号或航线",
       };
     }
 
