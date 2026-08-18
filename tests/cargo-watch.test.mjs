@@ -141,6 +141,10 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /persistedQuerySource/);
   assert.match(tracking, /沿用上次成功的/);
   assert.match(tracking, /TrackingFailureCategory/);
+  assert.match(tracking, /primaryFailureCategory/);
+  assert.match(tracking, /shouldRememberFallback/);
+  assert.match(tracking, /沿用已验证船名航线记录/);
+  assert.doesNotMatch(syncApi, /shipment\.carrierId \|\| profile\?\.carrierId/);
   assert.match(tracking, /queryOne/);
   assert.match(tracking, /queryHmm/);
   assert.match(tracking, /data\.RTN_DATA\?\.boardList \?\? data\.boardList/);
@@ -200,6 +204,8 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(carriers, /normalizeSource/);
   assert.match(carriers, /Boolean\(aliasKey && sourceKey\.includes\(aliasKey\)\)/);
   assert.match(carriers, /detectQuerySourceCarrier/);
+  assert.match(carriers, /sourceKey === shortNameKey/);
+  assert.match(carriers, /sourceKey === aliasKey/);
   assert.ok(
     carriers.indexOf("if (container)") < carriers.indexOf("return carrierFromSource(input.source)")
   );

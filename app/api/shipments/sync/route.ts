@@ -115,7 +115,7 @@ export async function POST(request: Request) {
       );
       return {
         ...shipment,
-        carrierId: shipment.carrierId || profile?.carrierId || "",
+        carrierId: shipment.carrierId || "",
         preferredQuerySource:
           shipment.preferredQuerySource || profile?.preferredQuerySource || "",
       };

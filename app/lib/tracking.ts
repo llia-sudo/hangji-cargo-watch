@@ -2258,6 +2258,40 @@ export async function syncShipment(
   let onlineIdentification: OnlineCarrierIdentification | undefined;
 
   try {
+    const learnedQuerySource = shipment.preferredQuerySource
+      ? carriers.find((item) => item.id === shipment.preferredQuerySource)
+      : undefined;
+    if (
+      !carrier &&
+      learnedQuerySource &&
+      supportsAutomaticCarrierQuery(learnedQuerySource)
+    ) {
+      try {
+        const learnedUpdate = await cachedCarrierQuery(
+          learnedQuerySource,
+          shipment,
+          session,
+          {
+            allowVoyageAlias: false,
+            sourceCarrier: learnedQuerySource,
+          }
+        );
+        return {
+          ok: true,
+          orderNo: shipment.orderNo,
+          message: `沿用已验证船名航线记录，${learnedQuerySource.shortName} 查询成功`,
+          update: {
+            ...learnedUpdate,
+            carrierId: learnedQuerySource.id,
+            preferredQuerySource: learnedQuerySource.id,
+            notes: `优先使用同船名同航线历史成功来源 ${learnedQuerySource.shortName}；本次仍严格匹配船名、航次及有序两港。${learnedUpdate.notes}`,
+          },
+        };
+      } catch {
+        // Learned source is stale or unavailable. Continue to fresh discovery.
+      }
+    }
+
     if (!carrier) {
       const onlineIdentificationPromise = findCarrierOnline(
         shipment,
@@ -2418,6 +2452,7 @@ export async function syncShipment(
     const attemptedFallbackCarriers = [...automaticFallbacks];
 
     let primaryError = "";
+    let primaryFailureCategory: TrackingFailureCategory | "" = "";
     if (supportsAutomaticCarrierQuery(carrier)) {
       try {
         const update = await cachedCarrierQuery(carrier, shipment, session, {
@@ -2435,7 +2470,9 @@ export async function syncShipment(
           },
         };
       } catch (error) {
-        primaryError = trackingErrorReason(error);
+        const failure = trackingErrorDetail(error);
+        primaryError = failure.reason;
+        primaryFailureCategory = failure.category;
       }
     }
 
@@ -2470,15 +2507,22 @@ export async function syncShipment(
         const relationship = winner.relationship;
         const fallbackKind =
           winner.sourceCarrier.id === "sinotrans" ? "智能回退" : "共舱回退";
+        const shouldRememberFallback =
+          !supportsAutomaticCarrierQuery(carrier) ||
+          ["VESSEL_NOT_FOUND", "VOYAGE_NOT_FOUND", "PORT_MISMATCH"].includes(
+            primaryFailureCategory
+          );
         const update: TrackingUpdate = {
           ...winner.update,
           carrierId: carrier.id,
-          preferredQuerySource: winner.sourceCarrier.id,
+          preferredQuerySource: shouldRememberFallback
+            ? winner.sourceCarrier.id
+            : carrier.id,
           // The order keeps the customer's voyage number. The partner alias is
           // evidence for this lookup and is recorded in notes instead.
           voyage: shipment.voyage,
           source: `${winner.update.source}（${fallbackKind}）`,
-          notes: `${fallbackKind}：${carrier.shortName} → ${winner.sourceCarrier.shortName}（${relationship}）${partnerVoyageNote(shipment.voyage, partnerVoyage)}。${winner.update.notes}`,
+          notes: `${fallbackKind}：${carrier.shortName} → ${winner.sourceCarrier.shortName}（${relationship}）${partnerVoyageNote(shipment.voyage, partnerVoyage)}。${shouldRememberFallback ? `主来源结果类型 ${primaryFailureCategory || "UNAVAILABLE"}，下次优先沿用该成功来源。` : `主来源结果类型 ${primaryFailureCategory || "UNKNOWN"} 属临时异常，本次使用回退但下次仍优先 ${carrier.shortName}。`}${winner.update.notes}`,
         };
         return {
           ok: true,

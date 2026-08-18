@@ -491,7 +491,14 @@ function carrierFromSource(source?: string) {
   if (!sourceKey) return undefined;
   const fallbackSource = sourceKey.includes("智能回退") || sourceKey.includes("共舱回退");
   if (fallbackSource) return undefined;
-  return detectQuerySourceCarrier(source);
+  return carriers.find((carrier) => {
+    const shortNameKey = normalizeSource(carrier.shortName);
+    if (shortNameKey && sourceKey === shortNameKey) return true;
+    return carrier.aliases.some((alias) => {
+      const aliasKey = normalizeSource(alias);
+      return Boolean(aliasKey && sourceKey === aliasKey);
+    });
+  });
 }
 
 export function detectCarrier(input: CarrierDetectionInput) {
