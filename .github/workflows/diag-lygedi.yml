@@ -14,39 +14,86 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect sailing search form
+      - name: Query planned and actual sailings
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY' > /tmp/diag.txt 2>&1
-          import re, requests, html
+          import requests, re, html as htmllib
+          from bs4 import BeautifulSoup
           from urllib.parse import urljoin
-          url='https://www.lygedi.com/SailingDate.html'
+
+          BASE='https://www.lygedi.com'
+          HEADERS={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36','Accept-Language':'zh-CN,zh;q=0.9,en;q=0.8'}
           s=requests.Session()
-          headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36','Accept-Language':'zh-CN,zh;q=0.9,en;q=0.8'}
-          r=s.get(url,headers=headers,timeout=30)
-          text=r.content.decode('utf-8','replace')
-          print('PAGE_STATUS',r.status_code,'URL',r.url,'LEN',len(text))
-          form_matches=list(re.finditer(r'<form\b[^>]*>.*?</form>',text,re.I|re.S))
-          print('FORM_COUNT',len(form_matches))
-          for i,m in enumerate(form_matches):
-            block=m.group(0)
-            tag=re.match(r'<form\b[^>]*>',block,re.I|re.S).group(0)
-            print('\nFORM',i,tag)
-            for elem in re.findall(r'<(?:input|select|option|button|textarea)\b[^>]*>',block,re.I|re.S):
-              clean=re.sub(r'\s+',' ',elem)
-              print(clean[:1000])
-            plain=re.sub(r'<[^>]+>',' ',block)
-            plain=html.unescape(re.sub(r'\s+',' ',plain))
-            print('FORM_TEXT',plain[:5000])
-          for needle in ['船名','航次','开航','查询','TEN JUPITER','SailingDate','Form1']:
-            print('\nCONTEXT',needle)
-            pos=0; count=0
+
+          def clean_text(x):
+            return re.sub(r'\s+',' ',htmllib.unescape(x)).strip()
+
+          def query_page(path, vessel='TEN JUPITER'):
+            url=urljoin(BASE,path)
+            r=s.get(url,headers=HEADERS,timeout=30)
+            print('\n=== GET',path,'===')
+            print('STATUS',r.status_code,'URL',r.url,'LEN',len(r.content))
+            text=r.content.decode('utf-8','replace')
+            soup=BeautifulSoup(text,'html.parser')
+            form=soup.find('form',attrs={'name':'Form1'}) or soup.find_all('form')[-1]
+            print('FORM_ACTION',form.get('action'),'METHOD',form.get('method'))
+            fields=[]
+            for inp in form.find_all(['input','select','textarea']):
+              name=inp.get('name')
+              if not name: continue
+              if inp.name=='select':
+                opt=inp.find('option',selected=True) or inp.find('option')
+                value=opt.get('value','') if opt else ''
+              else:
+                value=inp.get('value','')
+              fields.append((name,value))
+            names=[x[0] for x in fields]
+            print('FIELD_NAMES',names)
+            text_fields=[n for n in names if 'TextField' in n]
+            print('TEXT_FIELDS',text_fields)
+            # SailingDate uses 3 text fields: agent, carrier, English vessel. Actual page is inspected dynamically.
+            vessel_field=None
+            if '$TextField$1' in names:
+              vessel_field='$TextField$1'
+            elif text_fields:
+              # prefer field nearest label 英文船名 / 船名 by inspecting surrounding form HTML
+              vessel_field=text_fields[-1]
+            print('VESSEL_FIELD',vessel_field)
+            payload=[]
+            for name,value in fields:
+              if name==vessel_field: value=vessel
+              if name=='_linkSubmit': value='$LinkSubmit$1'
+              payload.append((name,value))
+            action=urljoin(r.url,form.get('action') or path)
+            pr=s.post(action,headers={**HEADERS,'Referer':r.url},data=payload,timeout=30,allow_redirects=True)
+            print('POST_STATUS',pr.status_code,'POST_URL',pr.url,'LEN',len(pr.content))
+            out=pr.content.decode('utf-8','replace')
+            print('HAS_TEN_JUPITER', 'TEN JUPITER' in out.upper())
+            # Print table rows containing vessel, plus headers for interpretation.
+            osoup=BeautifulSoup(out,'html.parser')
+            headers_text=[]
+            for tr in osoup.find_all('tr'):
+              txt=clean_text(tr.get_text(' ',strip=True))
+              if any(k in txt for k in ['计划到港时间','计划离港时间','实际到港','实际离港','开航时间','船名（中/英）','航次(进口/出口)']):
+                headers_text.append(txt)
+              if vessel in txt.upper():
+                print('MATCH_ROW',txt)
+                print('MATCH_HTML',str(tr)[:8000])
+            print('HEADER_ROWS')
+            for x in headers_text[:10]: print(x)
+            # contexts
+            upper=out.upper(); needle=vessel.upper(); pos=0; c=0
             while True:
-              pos=text.find(needle,pos)
-              if pos<0 or count>=10: break
-              print(re.sub(r'\s+',' ',text[max(0,pos-500):pos+1200]))
-              pos += len(needle); count += 1
+              pos=upper.find(needle,pos)
+              if pos<0 or c>=10: break
+              print('CTX',clean_text(out[max(0,pos-1200):pos+2500]))
+              pos+=len(needle); c+=1
+            return pr.status_code
+
+          query_page('/SailingDate.html')
+          query_page('/Sailing_ActDate.html')
           PY
           cat /tmp/diag.txt
       - name: Publish diagnostic result branch
