@@ -235,3 +235,22 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /共舱回退/);
   assert.match(tracking, /voyage: shipment\.voyage/);
 });
+
+
+test("desktop shipment UI uses readable route and detail typography", async () => {
+  const [dashboard, css] = await Promise.all([
+    readFile(new URL("app/TrackerApp.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(dashboard, /route-warning/);
+  assert.match(dashboard, />→<\/i>/);
+  assert.match(dashboard, /海运挂港不符/);
+  assert.match(css, /Desktop readability refresh 2026-08-18/);
+  assert.match(css, /\.orders-panel th[\s\S]*font-size: 11\.5px/);
+  assert.match(css, /\.orders-panel td[\s\S]*font-size: 13px/);
+  assert.match(css, /\.route-cell b[\s\S]*font-size: 12\.5px/);
+  assert.match(css, /\.detail-drawer[\s\S]*width: min\(540px, 100%\)/);
+  assert.match(css, /\.detail-drawer \.detail-section dd[\s\S]*font-size: 13\.5px/);
+  assert.match(css, /\.detail-drawer \.date-comparison-row strong[\s\S]*font-size: 18px/);
+});
