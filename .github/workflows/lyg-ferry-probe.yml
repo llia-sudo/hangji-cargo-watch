@@ -12,99 +12,75 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
           ref: lyg-ferry-probe
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Inspect live LYG Ferry query with browser
+      - name: Query TEN JUPITER directly
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install -q selenium
-          python - <<'PY' > lyg-browser-result.txt
-          import json, time, traceback
-          from selenium import webdriver
-          from selenium.webdriver.common.by import By
-          from selenium.webdriver.chrome.options import Options
+          python - <<'PY' > lyg-direct-result.txt
+          import json, subprocess
+          endpoint='https://cargo.lygferry.com/biz/scheduleViewList.do'
+          referer='https://cargo.lygferry.com/biz/scheduleView.do'
 
-          opts=Options()
-          opts.add_argument('--headless=new')
-          opts.add_argument('--no-sandbox')
-          opts.add_argument('--disable-dev-shm-usage')
-          opts.add_argument('--window-size=1600,1200')
-          opts.set_capability('goog:loggingPrefs', {'performance':'ALL','browser':'ALL'})
-          d=webdriver.Chrome(options=opts)
-          try:
-              d.get('https://cargo.lygferry.com/biz/scheduleView.do')
-              time.sleep(3)
-              print('TITLE', d.title)
-              condi=d.find_element(By.ID,'condi_scheduleView')
-              print('=== CONDITION FIELDS ===')
-              for e in condi.find_elements(By.CSS_SELECTOR,'input,select,button'):
-                  print(json.dumps({
-                    'tag':e.tag_name,'id':e.get_attribute('id'),'name':e.get_attribute('name'),
-                    'type':e.get_attribute('type'),'value':e.get_attribute('value'),
-                    'dg':e.get_attribute('data-DG_value'),'class':e.get_attribute('class'),
-                    'text':e.text[:100]
-                  }, ensure_ascii=False))
-              print('=== CONDITION HTML ===')
-              print(condi.get_attribute('outerHTML')[:30000])
+          def walk(obj,path='root'):
+              if isinstance(obj,dict):
+                  text=' '.join(str(v) for v in obj.values() if not isinstance(v,(dict,list)))
+                  if 'TEN JUPITER' in text.upper() or '26360E' in text.upper():
+                      print('MATCH',path,json.dumps(obj,ensure_ascii=False))
+                  for k,v in obj.items(): walk(v,f'{path}.{k}')
+              elif isinstance(obj,list):
+                  for i,v in enumerate(obj): walk(v,f'{path}[{i}]')
 
-              for name,val in [('VSL_NM','TEN JUPITER'),('VOYAGE_NO','26360E'),('VOYAGE_CD','26360E')]:
-                  els=condi.find_elements(By.CSS_SELECTOR,f'input[name="{name}"]')
-                  if els:
-                      d.execute_script("arguments[0].value=arguments[1]; arguments[0].dispatchEvent(new Event('change',{bubbles:true}));",els[0],val)
-
-              print('=== VALUES BEFORE QUERY ===')
-              for name in ['LINE_CD','DATE_FROM','DATE_TO','VSL_NM','VOYAGE_NO','VOYAGE_CD','IO_KND_CD','POL','POD']:
-                  els=condi.find_elements(By.CSS_SELECTOR,f'input[name="{name}"]')
-                  if els:
-                      e=els[0]
-                      print(name,'value=',e.get_attribute('value'),'dg=',e.get_attribute('data-DG_value'))
-
-              # Close any code-selection layer left by site initialization, then invoke
-              # the exact page button handler through JavaScript to avoid click overlays.
-              d.execute_script("document.querySelectorAll('#div_common_code_tree,.treeGroup').forEach(function(e){if(e.closest('.dynamicLayerPopUp')||e.id==='div_common_code_tree'){e.style.display='none';}})")
-              buttons=d.find_elements(By.CSS_SELECTOR,'.btn_condiWrap_sand_scheduleView')
-              print('QUERY_BUTTONS',len(buttons))
-              if buttons:
-                  d.execute_script('arguments[0].click()', buttons[0])
-                  time.sleep(5)
-
-              print('=== RESULT TEXT HITS ===')
-              body=d.find_element(By.TAG_NAME,'body').text
-              for line in body.splitlines():
-                  if any(k in line.upper() for k in ['TEN JUPITER','26360E','LIANYUNGANG','PYEONGTAEK']):
-                      print(line[:1000])
-
-              print('=== NETWORK scheduleViewList ===')
-              for entry in d.get_log('performance'):
-                  msg=json.loads(entry['message'])['message']
-                  if msg['method']=='Network.requestWillBeSent':
-                      req=msg['params']['request']
-                      if 'scheduleViewList.do' in req.get('url',''):
-                          print(json.dumps({'url':req.get('url'),'method':req.get('method'),'postData':req.get('postData','')},ensure_ascii=False))
-                  elif msg['method']=='Network.responseReceived':
-                      resp=msg['params']['response']
-                      if 'scheduleViewList.do' in resp.get('url',''):
-                          print('RESPONSE',json.dumps({'url':resp.get('url'),'status':resp.get('status'),'mimeType':resp.get('mimeType')},ensure_ascii=False))
-              print('=== BROWSER LOG ===')
-              for entry in d.get_log('browser'):
-                  print(entry)
-          except Exception:
-              print('=== PROBE EXCEPTION ===')
-              traceback.print_exc()
-          finally:
-              d.quit()
+          for direction in ['E','I']:
+              master={
+                'LINE_CD':'',
+                'ACTL_DT_FROM':'20260801',
+                'ACTL_DT_TO':'20261130',
+                'VSL_NM':'TEN JUPITER',
+                'VOYAGE_NO':'26360E',
+                'IO_KND_CD':direction,
+                'POL':'',
+                'POD':'',
+                'rowType':'C',
+              }
+              payload={
+                'url':'/biz/scheduleViewList.do',
+                'service':'scheduleViewList',
+                'serviceParam':json.dumps({'dataMaster':master},ensure_ascii=False,separators=(',',':')),
+                'thisObj':'',
+                'targetGridObj':'',
+              }
+              data=json.dumps(payload,ensure_ascii=False,separators=(',',':'))
+              cp=subprocess.run([
+                'curl','-L','--max-time','25','-sS','-w','\nHTTP_STATUS:%{http_code}\n',
+                '-H','Accept: application/json, text/javascript, */*; q=0.01',
+                '-H','Content-Type: application/json; charset=UTF-8',
+                '-H',f'Referer: {referer}',
+                '-H','User-Agent: Mozilla/5.0 CargoWatch/1.0',
+                '--data-binary','@-',endpoint
+              ],input=data,text=True,capture_output=True)
+              print('\n=== DIRECTION',direction,'===')
+              print('CURL_EXIT',cp.returncode)
+              if cp.stderr: print('STDERR',cp.stderr[:1000])
+              out=cp.stdout
+              print(out[:60000])
+              body=out.split('\nHTTP_STATUS:',1)[0]
+              try:
+                  parsed=json.loads(body)
+                  print('TOP_TYPE',type(parsed).__name__)
+                  if isinstance(parsed,dict): print('TOP_KEYS',list(parsed.keys()))
+                  walk(parsed)
+              except Exception as e:
+                  print('JSON_PARSE_ERROR',repr(e))
           PY
 
-          sed -n '1,700p' lyg-browser-result.txt
+          sed -n '1,500p' lyg-direct-result.txt
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add lyg-browser-result.txt
-          git commit -m 'Record LYG Ferry browser probe' || true
+          git add lyg-direct-result.txt
+          git commit -m 'Record LYG Ferry direct schedule response' || true
           git push origin HEAD:lyg-ferry-probe
