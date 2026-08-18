@@ -967,15 +967,7 @@ async function queryPancon(
         ? shipment.ata
         : "";
   const today = now.slice(0, 10);
-  const status = ata
-    ? "已到港"
-    : atd
-      ? eta && eta.slice(0, 10) < today
-        ? "可能延期"
-        : "运输中"
-      : etd && etd.slice(0, 10) < today
-        ? "可能延期"
-        : "待开船";
+  const status = scheduleStatus(etd, atd, eta, ata);
   const delayDays = ata
     ? dayDifference(ata, eta)
     : eta && eta.slice(0, 10) < today
@@ -1347,11 +1339,13 @@ function websiteTimestamp(value?: string) {
 }
 
 function scheduleStatus(etd: string, atd: string, eta: string, ata: string) {
-  const now = chinaTimestamp();
+  const today = chinaTimestamp().slice(0, 10);
+  const etdDate = etd.slice(0, 10);
+  const etaDate = eta.slice(0, 10);
   if (ata) return "已到港";
-  if (atd) return eta && eta < now ? "可能延期" : "运输中";
-  if (etd && etd >= now) return "待开船";
-  if (eta && eta >= now) return "运输中";
+  if (atd) return etaDate && etaDate < today ? "可能延期" : "运输中";
+  if (etdDate && etdDate >= today) return "待开船";
+  if (etdDate && etdDate < today && etaDate && etaDate >= today) return "预计运输中";
   return "可能延期";
 }
 
