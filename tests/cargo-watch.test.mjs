@@ -254,3 +254,39 @@ test("desktop shipment UI uses readable route and detail typography", async () =
   assert.match(css, /\.detail-drawer \.detail-section dd[\s\S]*font-size: 13\.5px/);
   assert.match(css, /\.detail-drawer \.date-comparison-row strong[\s\S]*font-size: 18px/);
 });
+
+test("expired ETD without ATD is shown as estimated in transit", async () => {
+  const [tracking, dashboard, css] = await Promise.all([
+    readFile(new URL("app/lib/tracking.ts", root), "utf8"),
+    readFile(new URL("app/TrackerApp.tsx", root), "utf8"),
+    readFile(new URL("app/globals.css", root), "utf8"),
+  ]);
+
+  assert.match(tracking, /return "预计运输中"/);
+  assert.match(tracking, /status: scheduleStatus\(etd, atd, eta, ata\)/);
+  assert.match(dashboard, /status === "运输中" \|\| status === "预计运输中"/);
+  assert.match(dashboard, /ATD 待确认/);
+  assert.match(dashboard, /尚未取得实际开船 ATD/);
+  assert.match(dashboard, /panel-primary-actions/);
+  assert.match(dashboard, /导入 Excel/);
+  assert.match(dashboard, /新增订单/);
+  assert.doesNotMatch(dashboard, /className="hero-actions"/);
+  assert.match(css, /Current sailings actions and estimated transit 2026-08-18/);
+  assert.match(css, /\.panel-primary-actions \.button/);
+});
+
+test("carrier-specific schedule status uses estimated in transit", async () => {
+  const tracking = await readFile(new URL("app/lib/tracking.ts", root), "utf8");
+  assert.match(
+    tracking,
+    /export async function querySinotrans[\s\S]*?status: scheduleStatus\(etd, atd, eta, ata\),[\s\S]*?source: "中外运集运官网船期"/
+  );
+  assert.match(
+    tracking,
+    /async function queryPancon[\s\S]*?const status = scheduleStatus\(etd, atd, eta, ata\);[\s\S]*?source: "PANCON 官网船期"/
+  );
+  assert.match(
+    tracking,
+    /async function queryCoscoGlobal[\s\S]*?const status = scheduleStatus\(etd, atd, eta, ata\);[\s\S]*?source: "COSCO eLines 全球官网船期"/
+  );
+});

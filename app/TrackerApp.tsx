@@ -93,7 +93,7 @@ const automaticCarrierCount = carriers.filter(
 function statusClass(status: string) {
   if (status === "已到港") return "status arrived";
   if (status.includes("延期")) return "status delayed";
-  if (status === "运输中") return "status sailing";
+  if (status === "运输中" || status === "预计运输中") return "status sailing";
   if (status === "待开船") return "status waiting";
   return "status unknown";
 }
@@ -161,7 +161,7 @@ function routeLabel(shipment: Shipment) {
 
 function completion(shipment: Shipment) {
   if (shipment.status === "已到港") return 100;
-  if (shipment.status === "运输中" || shipment.status.includes("延期")) return 62;
+  if (["运输中", "预计运输中"].includes(shipment.status) || shipment.status.includes("延期")) return 62;
   if (shipment.status === "待开船") return 24;
   return 8;
 }
@@ -171,6 +171,13 @@ function keyStrength(shipment: Shipment) {
   if (shipment.bookingNo || shipment.billOfLading) return "有提单 / Booking";
   if (shipment.vesselName && shipment.voyage) return "可跟踪船舶";
   return "需补充查询信息";
+}
+
+function statusDetail(shipment: Shipment) {
+  if (shipment.status === "预计运输中" && !shipment.atd) {
+    return `${shipment.etd ? `ETD ${formatDate(shipment.etd)} 已过 · ` : ""}尚未取得实际开船 ATD`;
+  }
+  return keyStrength(shipment);
 }
 
 function shipmentSourceUrl(shipment: Shipment) {
@@ -354,7 +361,7 @@ export default function TrackerApp() {
     const current = shipments.filter((item) => !item.archivedAt);
     const total = current.length;
     const active = current.filter((item) =>
-      ["待开船", "运输中", "可能延期"].includes(item.status)
+      ["待开船", "运输中", "预计运输中", "可能延期"].includes(item.status)
     ).length;
     const delayed = current.filter(shipmentHasScheduleDelay).length;
     const arrived = current.filter((item) => item.status === "已到港").length;
@@ -371,6 +378,7 @@ export default function TrackerApp() {
       const filterMatch =
         filter === "全部" ||
         shipment.status === filter ||
+        (filter === "运输中" && shipment.status === "预计运输中") ||
         (filter === "可能延期" && shipmentHasScheduleDelay(shipment));
       const searchMatch =
         !term ||
@@ -539,14 +547,6 @@ export default function TrackerApp() {
             <h1>每一票货，现在都到哪里了？</h1>
             <p className="hero-copy">集中管理船名航次、箱号、ETD 和 ETA，快速找出延期和信息缺失的订单。</p>
           </div>
-          <div className="hero-actions">
-            <button className="button secondary" type="button" onClick={() => setModal("import")}>
-              <span aria-hidden="true">↑</span> 导入 Excel
-            </button>
-            <button className="button primary" type="button" onClick={openAddShipment}>
-              <span aria-hidden="true">+</span> 新增订单
-            </button>
-          </div>
         </div>
 
         <section className="summary-grid" aria-label="订单概况">
@@ -557,7 +557,7 @@ export default function TrackerApp() {
           </article>
           <article className="summary-card active-card">
             <span className="summary-icon">≋</span>
-            <div><p>出运中</p><strong>{summary.active}</strong><small>待开船 / 运输中</small></div>
+            <div><p>出运中</p><strong>{summary.active}</strong><small>待开船 / 运输中（含预计）</small></div>
             <span className="tiny-ring" style={{ "--value": `${Math.max(8, summary.total ? (summary.active / summary.total) * 100 : 8)}%` } as React.CSSProperties} />
           </article>
           <article className="summary-card delay-card">
@@ -583,7 +583,13 @@ export default function TrackerApp() {
         <section className="content-grid" id="orders">
           <div className="orders-panel">
             <div className="panel-heading">
-              <div><p className="eyebrow">订单清单</p><h2>{showArchived ? "已归档船次" : "当前船次"}</h2></div>
+              <div className="panel-title-group">
+                <div><p className="eyebrow">订单清单</p><h2>{showArchived ? "已归档船次" : "当前船次"}</h2></div>
+                <div className="panel-primary-actions">
+                  <button className="button secondary" type="button" onClick={() => setModal("import")}><span aria-hidden="true">↑</span> 导入 Excel</button>
+                  <button className="button primary" type="button" onClick={openAddShipment}><span aria-hidden="true">+</span> 新增订单</button>
+                </div>
+              </div>
               <div className="panel-controls">
                 <div className="archive-view-switch" aria-label="订单归档视图">
                   <button className={!showArchived ? "active" : ""} type="button" onClick={() => setShowArchived(false)}>当前 {summary.total}</button>
@@ -637,7 +643,7 @@ export default function TrackerApp() {
                         <td><strong>{shipment.orderNo}</strong><small>{shipment.customerCode || "未填客户编号"}</small></td>
                         <td><span className="vessel-name">{shipment.vesselName || "待补充"}</span><span className="voyage-action"><small>{shipment.voyage || "航次待补充"}</small><button className="single-sync-button" type="button" disabled={syncing || Boolean(syncingOrderNo)} aria-label={`只查询 ${shipment.orderNo} ${shipment.vesselName} ${shipment.voyage}`} title="只查询这一票" onClick={(event) => { event.stopPropagation(); void syncOneShipment(shipment); }}><span className={syncingOrderNo === shipment.orderNo ? "spin" : ""}>↻</span>{syncingOrderNo === shipment.orderNo ? "查询中" : "查询"}</button></span></td>
                         <td><span className="route-cell"><b>{shipment.portOfLoading || "—"}</b><i aria-hidden="true">→</i><b>{shipment.portOfDischarge || "—"}</b></span>{hasPortMismatchWarning(shipment) && <small className="route-warning">海运挂港不符</small>}</td>
-                        <td><span className={statusClass(shipment.status)}>{shipment.status}</span></td>
+                        <td><span className={statusClass(shipment.status)}>{shipment.status}</span>{shipment.status === "预计运输中" && <small className="estimated-transit-note">ATD 待确认</small>}</td>
                         <td><strong className="date-value">{formatDate(shipment.atd || shipment.etd)}</strong><small>{shipment.atd ? "实际开船" : "计划开船"}</small>{departureShiftDays(shipment) !== 0 && <small className={departureShiftDays(shipment) > 0 ? "delay-note" : undefined}>{shiftLabel(departureShiftDays(shipment), shipment.atd ? "晚开" : "延后")}</small>}</td>
                         <td><strong className="date-value">{formatDate(shipment.ata || shipment.eta)}</strong><small>{shipment.ata ? "实际到港" : "预计到港"}</small>{arrivalShiftDays(shipment) !== 0 && <small className={arrivalShiftDays(shipment) > 0 ? "delay-note" : undefined}>{shiftLabel(arrivalShiftDays(shipment), shipment.ata ? "晚到" : "延后")}</small>}</td>
                         <td><span className="source-name">{shipment.source || "手工录入"}</span><small>{shipment.lastCheckedAt ? `更新 ${shipment.lastCheckedAt.slice(5, 16)}` : "等待首次查询"}</small></td>
@@ -736,7 +742,7 @@ export default function TrackerApp() {
         <div className="drawer-backdrop" role="presentation" onMouseDown={() => setSelected(null)}>
           <aside className="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="detail-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className="drawer-heading"><div><p className="eyebrow">订单详情</p><h2 id="detail-title">{selected.orderNo}</h2></div><div className="drawer-heading-actions"><button className="drawer-edit-button" type="button" onClick={() => openEditShipment(selected)}>编辑订单</button><button className="drawer-archive-button" type="button" disabled={Boolean(archivingOrderNo)} onClick={() => void setShipmentArchived(selected, !selected.archivedAt)}>{selected.archivedAt ? "恢复" : "归档"}</button><button className="drawer-close-button" type="button" onClick={() => setSelected(null)} aria-label="关闭">×</button></div></div>
-            <div className="drawer-status"><span className={selected.archivedAt ? "status archived" : statusClass(selected.status)}>{selected.archivedAt ? "已归档" : selected.status}</span><small>{selected.archivedAt ? `归档于 ${selected.archivedAt.slice(0, 10)}` : keyStrength(selected)}</small></div>
+            <div className="drawer-status"><span className={selected.archivedAt ? "status archived" : statusClass(selected.status)}>{selected.archivedAt ? "已归档" : selected.status}</span><small>{selected.archivedAt ? `归档于 ${selected.archivedAt.slice(0, 10)}` : statusDetail(selected)}</small></div>
             <section className="route-visual">
               <div className="route-labels"><div><span>起运港</span><strong>{selected.portOfLoading || "待补充"}</strong></div><div><span>目的港</span><strong>{selected.portOfDischarge || "待补充"}</strong></div></div>
               <div className="route-track"><i className="route-progress" style={{ width: `${completion(selected)}%` }} /><span className="port-dot origin" /><span className="ship-dot" style={{ left: `calc(${completion(selected)}% - 14px)` }}>▲</span><span className="port-dot destination" /></div>
@@ -755,7 +761,7 @@ export default function TrackerApp() {
               </div>
             </div>
             <section className="detail-section"><h3>运输标识</h3><dl><div><dt>船名 / 航次</dt><dd>{selected.vesselName || "—"} {selected.voyage}</dd></div><div><dt>集装箱号</dt><dd>{selected.containerNo || "—"}</dd></div><div><dt>提单号</dt><dd>{selected.billOfLading || "—"}</dd></div><div><dt>Booking No.</dt><dd>{selected.bookingNo || "—"}</dd></div></dl></section>
-            <section className="detail-section timeline"><h3>当前跟踪摘要</h3><div className="timeline-item done"><i /><div><strong>订单已建立</strong><small>{selected.createdAt?.slice(0, 10)}</small></div></div>{(selected.atd || selected.etd) && <div className="timeline-item done"><i /><div><strong>{selected.atd ? "已开船" : "已有计划开船时间"}</strong><small>{formatDate(selected.atd || selected.etd)}</small></div></div>}<div className={`timeline-item ${selected.status === "已到港" ? "done" : "current"}`}><i /><div><strong>{selected.status}</strong><small>{selected.notes || "等待更多节点"}</small></div></div>{selected.eta && <div className={`timeline-item ${selected.ata ? "done" : "future"}`}><i /><div><strong>{selected.ata ? "已到达目的港" : "预计到达"}</strong><small>{formatDate(selected.ata || selected.eta)}</small></div></div>}</section>
+            <section className="detail-section timeline"><h3>当前跟踪摘要</h3><div className="timeline-item done"><i /><div><strong>订单已建立</strong><small>{selected.createdAt?.slice(0, 10)}</small></div></div>{(selected.atd || selected.etd) && <div className="timeline-item done"><i /><div><strong>{selected.atd ? "已开船" : selected.status === "预计运输中" ? "计划开船时间已过" : "已有计划开船时间"}</strong><small>{formatDate(selected.atd || selected.etd)}{selected.status === "预计运输中" && !selected.atd ? " · ATD 待确认" : ""}</small></div></div>}<div className={`timeline-item ${selected.status === "已到港" ? "done" : "current"}`}><i /><div><strong>{selected.status}</strong><small>{selected.notes || "等待更多节点"}</small></div></div>{selected.eta && <div className={`timeline-item ${selected.ata ? "done" : "future"}`}><i /><div><strong>{selected.ata ? "已到达目的港" : "预计到达"}</strong><small>{formatDate(selected.ata || selected.eta)}</small></div></div>}</section>
             <section className="detail-section schedule-history">
               <div className="schedule-history-heading"><h3>船期变化记录</h3><span>{selected.scheduleHistory?.length ?? 0} 条记录</span></div>
               {selected.scheduleHistory?.length ? (
