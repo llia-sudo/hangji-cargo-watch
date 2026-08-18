@@ -26,7 +26,7 @@ jobs:
           set -euo pipefail
           python -m pip install -q selenium
           python - <<'PY' > lyg-browser-result.txt
-          import json, time
+          import json, time, traceback
           from selenium import webdriver
           from selenium.webdriver.common.by import By
           from selenium.webdriver.chrome.options import Options
@@ -54,32 +54,27 @@ jobs:
               print('=== CONDITION HTML ===')
               print(condi.get_attribute('outerHTML')[:30000])
 
-              # Fill textual criteria where the page supports them. Route selectors
-              # are deliberately not guessed; we inspect their generated option data.
               for name,val in [('VSL_NM','TEN JUPITER'),('VOYAGE_NO','26360E'),('VOYAGE_CD','26360E')]:
                   els=condi.find_elements(By.CSS_SELECTOR,f'input[name="{name}"]')
                   if els:
                       d.execute_script("arguments[0].value=arguments[1]; arguments[0].dispatchEvent(new Event('change',{bubbles:true}));",els[0],val)
-              for name in ['LINE_CD','IO_KND_CD','POL','POD']:
+
+              print('=== VALUES BEFORE QUERY ===')
+              for name in ['LINE_CD','DATE_FROM','DATE_TO','VSL_NM','VOYAGE_NO','VOYAGE_CD','IO_KND_CD','POL','POD']:
                   els=condi.find_elements(By.CSS_SELECTOR,f'input[name="{name}"]')
                   if els:
-                      try:
-                          els[0].click(); time.sleep(0.8)
-                          print('=== POPUP AFTER',name,'===')
-                          body=d.find_element(By.TAG_NAME,'body').text
-                          matches=[line for line in body.splitlines() if any(k in line.upper() for k in ['LIANYUNGANG','PYEONGTAEK','LYG','EXPORT','IMPORT','OUT','IN'])]
-                          print('\n'.join(matches[:120]))
-                          # close selection layers with Escape where possible
-                          from selenium.webdriver.common.keys import Keys
-                          d.switch_to.active_element.send_keys(Keys.ESCAPE)
-                      except Exception as e:
-                          print('POPUP_ERROR',name,type(e).__name__,str(e)[:300])
+                      e=els[0]
+                      print(name,'value=',e.get_attribute('value'),'dg=',e.get_attribute('data-DG_value'))
 
-              # Query once with current/default carrier/direction/route values plus vessel/voyage.
+              # Close any code-selection layer left by site initialization, then invoke
+              # the exact page button handler through JavaScript to avoid click overlays.
+              d.execute_script("document.querySelectorAll('#div_common_code_tree,.treeGroup').forEach(function(e){if(e.closest('.dynamicLayerPopUp')||e.id==='div_common_code_tree'){e.style.display='none';}})")
               buttons=d.find_elements(By.CSS_SELECTOR,'.btn_condiWrap_sand_scheduleView')
               print('QUERY_BUTTONS',len(buttons))
               if buttons:
-                  buttons[0].click(); time.sleep(4)
+                  d.execute_script('arguments[0].click()', buttons[0])
+                  time.sleep(5)
+
               print('=== RESULT TEXT HITS ===')
               body=d.find_element(By.TAG_NAME,'body').text
               for line in body.splitlines():
@@ -100,6 +95,9 @@ jobs:
               print('=== BROWSER LOG ===')
               for entry in d.get_log('browser'):
                   print(entry)
+          except Exception:
+              print('=== PROBE EXCEPTION ===')
+              traceback.print_exc()
           finally:
               d.quit()
           PY
