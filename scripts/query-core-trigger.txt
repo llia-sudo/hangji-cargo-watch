@@ -1,0 +1,1 @@
+Trigger query-core workflow after workflow definition is present on branch.
