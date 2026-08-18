@@ -19,18 +19,25 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm test
+      - name: Install dependencies
+        id: npm_ci
+        run: npm ci
+      - name: Build and test
+        id: app_test
+        run: npm test
       - name: Deploy
         id: cloudflare_deploy
-        if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
+        if: ${{ success() && env.CLOUDFLARE_API_TOKEN != '' }}
         run: npx wrangler deploy
       - name: Record deployment result
         if: ${{ always() }}
         env:
+          NPM_CI_OUTCOME: ${{ steps.npm_ci.outcome }}
+          TEST_OUTCOME: ${{ steps.app_test.outcome }}
           DEPLOY_OUTCOME: ${{ steps.cloudflare_deploy.outcome }}
+          TOKEN_CONFIGURED: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
         run: |
-          printf 'commit=%s\noutcome=%s\nrecorded_at=%s\n' "$GITHUB_SHA" "$DEPLOY_OUTCOME" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > deployment-audit.txt
+          printf 'commit=%s\nnpm_ci=%s\ntest=%s\ntoken_configured=%s\ndeploy=%s\nrecorded_at=%s\n' "$GITHUB_SHA" "$NPM_CI_OUTCOME" "$TEST_OUTCOME" "$TOKEN_CONFIGURED" "$DEPLOY_OUTCOME" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > deployment-audit.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add deployment-audit.txt
