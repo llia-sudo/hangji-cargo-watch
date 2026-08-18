@@ -1,0 +1,37 @@
+name: Apply query core fix
+
+on:
+  push:
+    branches:
+      - fix/query-core-20260818
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/query-core-20260818
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: node scripts/apply-query-core-fix.mjs
+      - run: npm ci
+      - run: npm test
+      - name: Commit tested fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/lib/carriers.ts app/lib/tracking.ts app/api/shipments/route.ts tests/cargo-watch.test.mjs
+          if git diff --cached --quiet; then
+            echo "No query-core changes to commit"
+            exit 0
+          fi
+          git commit -m "Harden carrier routing and COSCO diagnostics"
+          git push origin HEAD:fix/query-core-20260818
