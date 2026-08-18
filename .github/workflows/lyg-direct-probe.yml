@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-      - name: Query TEN JUPITER 26360E
+      - name: Query LYG Ferry schedule list
         shell: bash
         run: |
           set -euo pipefail
@@ -23,28 +23,31 @@ jobs:
           import json, subprocess
           endpoint='https://cargo.lygferry.com/biz/scheduleViewList.do'
           referer='https://cargo.lygferry.com/biz/scheduleView.do'
-          for direction in ['E','I']:
-              master={'LINE_CD':'','ACTL_DT_FROM':'20260801','ACTL_DT_TO':'20261130','VSL_NM':'TEN JUPITER','VOYAGE_NO':'26360E','IO_KND_CD':direction,'POL':'','POD':'','rowType':'C'}
+          cases=[
+            ('exact-E','E','TEN JUPITER','26360E'),
+            ('exact-I','I','TEN JUPITER','26360E'),
+            ('broad-E','E','',''),
+            ('broad-I','I','',''),
+          ]
+          for label,direction,vessel,voyage in cases:
+              master={'LINE_CD':'','ACTL_DT_FROM':'20260801','ACTL_DT_TO':'20261031','VSL_NM':vessel,'VOYAGE_NO':voyage,'IO_KND_CD':direction,'POL':'','POD':'','rowType':'C'}
               payload={'url':'/biz/scheduleViewList.do','service':'scheduleViewList','serviceParam':json.dumps({'dataMaster':master},ensure_ascii=False,separators=(',',':')),'thisObj':'','targetGridObj':''}
               data=json.dumps(payload,ensure_ascii=False,separators=(',',':'))
               cp=subprocess.run(['curl','-L','--max-time','25','-sS','-w','\nHTTP_STATUS:%{http_code}\n','-H','Accept: application/json, text/javascript, */*; q=0.01','-H','Content-Type: application/json; charset=UTF-8','-H',f'Referer: {referer}','-H','User-Agent: Mozilla/5.0 CargoWatch/1.0','--data-binary','@-',endpoint],input=data,text=True,capture_output=True)
-              print('\n=== DIRECTION',direction,'===')
-              print('EXIT',cp.returncode)
-              print(cp.stdout[:80000])
-              if cp.stderr: print('STDERR',cp.stderr[:2000])
+              print('\n===',label,'===')
               body=cp.stdout.split('\nHTTP_STATUS:',1)[0]
+              print('HTTP',cp.stdout.rsplit('HTTP_STATUS:',1)[-1].strip() if 'HTTP_STATUS:' in cp.stdout else '?','LEN',len(body))
               try:
                   parsed=json.loads(body)
-                  print('TOP_KEYS',list(parsed.keys()) if isinstance(parsed,dict) else type(parsed).__name__)
-                  def walk(obj,path='root'):
-                      if isinstance(obj,dict):
-                          txt=' '.join(str(v) for v in obj.values() if not isinstance(v,(dict,list)))
-                          if 'TEN JUPITER' in txt.upper() or '26360E' in txt.upper():
-                              print('MATCH',path,json.dumps(obj,ensure_ascii=False))
-                          for k,v in obj.items(): walk(v,f'{path}.{k}')
-                      elif isinstance(obj,list):
-                          for i,v in enumerate(obj): walk(v,f'{path}[{i}]')
-                  walk(parsed)
+                  rows=parsed.get('dataGrid',[]) if isinstance(parsed,dict) else []
+                  print('ROWS',len(rows))
+                  for i,row in enumerate(rows):
+                      text=' '.join(str(v) for v in row.values()).upper() if isinstance(row,dict) else str(row).upper()
+                      if any(k in text for k in ['TEN JUPITER','26360','JUPITER','LIANYUNGANG','PYEONGTAEK']):
+                          print('MATCH',i,json.dumps(row,ensure_ascii=False))
+                  if rows:
+                      print('SAMPLE_KEYS',list(rows[0].keys()) if isinstance(rows[0],dict) else type(rows[0]).__name__)
+                      print('SAMPLE',json.dumps(rows[:3],ensure_ascii=False)[:12000])
               except Exception as e:
-                  print('PARSE_ERROR',repr(e))
+                  print('PARSE_ERROR',repr(e),'BODY',body[:5000])
           PY
