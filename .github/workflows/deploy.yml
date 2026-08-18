@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   deploy:
@@ -22,5 +23,12 @@ jobs:
       - run: npm ci
       - run: npm test
       - name: Deploy
+        id: cloudflare_deploy
         if: ${{ env.CLOUDFLARE_API_TOKEN != '' }}
         run: npx wrangler deploy
+      - name: Record deployment result on PR 1
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_OUTCOME: ${{ steps.cloudflare_deploy.outcome }}
+        run: gh pr comment 1 --body "Deployment audit for commit ${GITHUB_SHA}: Cloudflare deploy outcome = ${DEPLOY_OUTCOME}."
