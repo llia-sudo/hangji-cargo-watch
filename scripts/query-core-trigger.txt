@@ -1,1 +1,1 @@
-Trigger query-core workflow after workflow definition is present on branch.
+Trigger query-core PR validation workflow after the base-branch workflow is present.
