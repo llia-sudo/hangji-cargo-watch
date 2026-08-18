@@ -1207,14 +1207,16 @@ async function queryCoscoGlobal(
   const exactPol = exactGroup?.find(
     (row) => coscoPortKey(row.protName ?? "") === coscoPortKey(shipment.portOfLoading)
   );
-  const allowOoclInlandContinuation = Boolean(
-    context?.allowVoyageAlias &&
-      context.primaryCarrier?.id === "oocl" &&
-      exactGroup &&
+  // If the exact vessel/voyage and POL are confirmed but the requested POD
+  // is not in the downstream ocean rotation, keep reliable departure data.
+  // This covers inland destinations such as Montreal after an ocean discharge
+  // at Vancouver without pretending that the vessel itself calls Montreal.
+  const allowDepartureOnly = Boolean(
+    exactGroup &&
       exactPol &&
       !exactGroupHasRoute
   );
-  const voyageRows = exactGroupHasRoute || allowOoclInlandContinuation
+  const voyageRows = exactGroupHasRoute || allowDepartureOnly
     ? exactGroup
     : aliasGroups[0]?.group;
   if (!voyageRows) {
@@ -1243,7 +1245,7 @@ async function queryCoscoGlobal(
     (row) => coscoPortKey(row.protName ?? "") === coscoPortKey(shipment.portOfLoading),
     (row) => coscoPortKey(row.protName ?? "") === coscoPortKey(shipment.portOfDischarge)
   );
-  if (!pair && !allowOoclInlandContinuation) {
+  if (!pair && !allowDepartureOnly) {
     throw new Error("COSCO 官网航次存在，但启运港或目的港不在同一有序港序中");
   }
   const pol = pair?.pol ?? exactPol;
@@ -1295,8 +1297,8 @@ async function queryCoscoGlobal(
   const aliasNote = context?.allowVoyageAlias
     ? partnerVoyageNote(shipment.voyage, header.voy)
     : "";
-  const inlandNote = allowOoclInlandContinuation
-    ? `；${shipment.portOfDischarge} 为内陆目的地，远洋挂港表不直接列出该地点，本次先更新海运干线开航信息`
+  const inlandNote = allowDepartureOnly
+    ? `；目的港信息不符：官网已确认 ${shipment.vesselName} / ${shipment.voyage} 及起运港 ${pol.protName || shipment.portOfLoading}，但 ${shipment.portOfDischarge} 不在该航次起运港后的海运挂港序中；本次仅以官网更新 ETD/ATD，ETA/ATA 未由该海运挂港表验证，目的地可能包含后续铁路、卡车或其他内陆运输`
     : "";
 
   return {
@@ -1305,7 +1307,9 @@ async function queryCoscoGlobal(
       ? header.voy.split("/", 1)[0].trim()
       : shipment.voyage,
     portOfLoading: pol.protName || shipment.portOfLoading,
-    portOfDischarge: pod?.protName || shipment.portOfDischarge,
+    portOfDischarge: pair
+      ? pod?.protName || shipment.portOfDischarge
+      : shipment.portOfDischarge,
     status,
     etd,
     atd,
@@ -2226,9 +2230,10 @@ async function discoverUnknownCarrierByOfficialSchedule(
   shipment: TrackingShipment,
   session: TrackingSession
 ) {
-  // Only completely unknown vessels fan out. Each candidate has to pass its
-  // existing strict vessel + voyage + ordered POL/POD query. A vessel merely
-  // appearing in one company's vessel list is not enough to claim the order.
+  // Only completely unknown vessels fan out. A source must confirm the
+  // vessel and voyage, and normally an ordered POL/POD pair. If the exact
+  // sailing confirms the POL but the requested POD is not in the ocean port
+  // rotation, COSCO may return departure-only data with an explicit warning.
   const candidateIds = ["cosco", "one", "hmm", "yang-ming", "maersk", "sinotrans"];
   const candidates = candidateIds
     .map((id) => carriers.find((carrier) => carrier.id === id))
@@ -2284,7 +2289,7 @@ export async function syncShipment(
             ...learnedUpdate,
             carrierId: learnedQuerySource.id,
             preferredQuerySource: learnedQuerySource.id,
-            notes: `优先使用同船名同航线历史成功来源 ${learnedQuerySource.shortName}；本次仍严格匹配船名、航次及有序两港。${learnedUpdate.notes}`,
+            notes: `优先使用同船名同航线历史成功来源 ${learnedQuerySource.shortName}；本次仍严格匹配船名、航次及起运港，目的港未命中时只保留开航信息并明确提示。${learnedUpdate.notes}`,
           },
         };
       } catch {
@@ -2315,7 +2320,7 @@ export async function syncShipment(
             ...first.value.update,
             carrierId: carrier.id,
             preferredQuerySource: carrier.id,
-            notes: `未知船公司官方交叉识别：${carrier.shortName} 的官网同时匹配船名、航次及有序两港。${first.value.update.notes}`,
+            notes: `未知船公司官方交叉识别：${carrier.shortName} 官网已验证船名、航次及起运港；目的港匹配状态以本次查询备注为准。${first.value.update.notes}`,
           },
         };
       }
@@ -2334,7 +2339,7 @@ export async function syncShipment(
               ...officialMatch.update,
               carrierId: carrier.id,
               preferredQuerySource: carrier.id,
-              notes: `未知船公司官方交叉识别：${carrier.shortName} 的官网同时匹配船名、航次及有序两港。${officialMatch.update.notes}`,
+              notes: `未知船公司官方交叉识别：${carrier.shortName} 官网已验证船名、航次及起运港；目的港匹配状态以本次查询备注为准。${officialMatch.update.notes}`,
             },
           };
         }

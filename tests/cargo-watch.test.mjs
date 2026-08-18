@@ -149,7 +149,17 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /queryHmm/);
   assert.match(tracking, /data\.RTN_DATA\?\.boardList \?\? data\.boardList/);
   assert.match(tracking, /hmmVoyageFamily/);
-  assert.match(tracking, /allowOoclInlandContinuation/);
+  assert.match(tracking, /allowDepartureOnly/);
+  assert.match(tracking, /目的港信息不符/);
+  assert.match(tracking, /ETA\/ATA 未由该海运挂港表验证/);
+  assert.match(tracking, /portOfDischarge: pair/);
+  assert.match(dashboard, /function departureShiftDays/);
+  assert.match(dashboard, /function arrivalShiftDays/);
+  assert.match(dashboard, /shipmentHasScheduleDelay/);
+  assert.match(dashboard, /hasPortMismatchWarning/);
+  assert.match(dashboard, /shipment\.atd \? "晚开" : "延后"/);
+  assert.match(dashboard, /shipment\.ata \? "晚到" : "延后"/);
+  assert.doesNotMatch(dashboard, /晚 \{shipment\.delayDays\} 天/);
   assert.match(tracking, /queryYangMing/);
   assert.match(tracking, /queryMaersk/);
   assert.match(tracking, /active-vessels\?carrierCodes=MAEU/);
