@@ -23,7 +23,7 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply guarded query-core patches
-        run: node scripts/apply-query-core-fix.mjs
+        run: python3 scripts/apply-query-core-fix.py
       - run: npm ci
       - run: npm test
       - name: Commit tested fixes to repair branch
