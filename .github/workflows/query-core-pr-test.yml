@@ -23,17 +23,19 @@ jobs:
           node-version: 22
           cache: npm
       - name: Apply guarded query-core patches
-        run: python3 scripts/apply-query-core-fix.py
+        run: |
+          python3 scripts/apply-query-core-fix.py
+          python3 scripts/apply-query-routing-state.py
       - run: npm ci
       - run: npm test
       - name: Commit tested fixes to repair branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/lib/carriers.ts app/lib/tracking.ts app/api/shipments/route.ts tests/cargo-watch.test.mjs
+          git add app/lib/carriers.ts app/lib/tracking.ts app/api/shipments/route.ts app/api/shipments/sync/route.ts db/index.ts db/schema.ts drizzle/0005_query_routing.sql tests/cargo-watch.test.mjs
           if git diff --cached --quiet; then
             echo "No generated changes to commit"
             exit 0
           fi
-          git commit -m "Harden carrier routing and COSCO diagnostics"
+          git commit -m "Persist learned query routing state"
           git push origin HEAD:fix/query-core-20260818
