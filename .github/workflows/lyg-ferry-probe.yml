@@ -7,7 +7,7 @@ on:
       - .github/workflows/lyg-ferry-probe.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   probe:
@@ -15,31 +15,39 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: lyg-ferry-probe
       - name: Probe public LYG Ferry pages
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/lyg
           UA='Mozilla/5.0 CargoWatch/1.0'
-
-          echo '=== homepage ==='
-          curl -L --fail --max-time 20 -A "$UA" -sS 'https://www.lygferry.com/' -o /tmp/lyg/home.html
-          grep -inE 'TEN JUPITER|TNJP|26360E|26360|PYEONGTAEK|LIANYUNGANG|LYG|PTK' /tmp/lyg/home.html | head -160 || true
-
-          echo '=== scheduleView source markers ==='
           curl -L --fail --max-time 20 -A "$UA" -sS 'https://cargo.lygferry.com/biz/scheduleView.do' -o /tmp/lyg/schedule.html
-          grep -inE '<form|<script|schedule|ajax|url:|action=|vsl|voy|pol|pod|from|to|search|select' /tmp/lyg/schedule.html | head -280 || true
-
-          echo '=== scheduleMonth source markers ==='
           curl -L --fail --max-time 20 -A "$UA" -sS 'https://cargo.lygferry.com/biz/scheduleMonthView.do' -o /tmp/lyg/month.html
-          grep -inE '<form|<script|schedule|ajax|url:|action=|vsl|voy|pol|pod|month|search|select' /tmp/lyg/month.html | head -320 || true
 
-          echo '=== linked JS candidates ==='
-          python - <<'PY'
+          python - <<'PY' > lyg-probe-result.txt
           from pathlib import Path
           import re, subprocess
           base='https://cargo.lygferry.com'
-          html='\n'.join(Path('/tmp/lyg/'+n).read_text(errors='ignore') for n in ['schedule.html','month.html'])
+          pages={n:Path('/tmp/lyg/'+n).read_text(errors='ignore') for n in ['schedule.html','month.html']}
+          for name,html in pages.items():
+              print(f'=== {name} FORMS ===')
+              for form in re.findall(r'<form\b[\s\S]*?</form>', html, re.I):
+                  head=form.split('>',1)[0]+'>'
+                  print(head[:1000])
+                  fields=[]
+                  for tag in re.findall(r'<(?:input|select|button)\b[^>]*>', form, re.I):
+                      nm=re.search(r'\b(?:name|id)=["\']([^"\']+)',tag,re.I)
+                      if nm: fields.append((nm.group(1), re.sub(r'\s+',' ',tag)[:500]))
+                  for k,t in fields[:120]: print('FIELD',k,t)
+              print(f'=== {name} INLINE SCRIPT HITS ===')
+              for script in re.findall(r'<script(?![^>]+src=)[^>]*>([\s\S]*?)</script>', html, re.I):
+                  if re.search(r'schedule|ajax|\.do|vsl|voy|pol|pod|search|grid|list', script, re.I):
+                      for line in script.splitlines():
+                          if re.search(r'schedule|ajax|\.do|vsl|voy|pol|pod|search|grid|list|url',line,re.I):
+                              print(re.sub(r'\s+',' ',line).strip()[:1800])
+          html='\n'.join(pages.values())
           srcs=[]
           for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', html, re.I):
               if src.startswith('//'): url='https:'+src
@@ -47,14 +55,29 @@ jobs:
               elif src.startswith('/'): url=base+src
               else: url=base+'/'+src.lstrip('./')
               if url not in srcs: srcs.append(url)
-          print('\n'.join(srcs))
-          for i,url in enumerate(srcs[:50]):
+          print('=== LINKED JS HITS ===')
+          for i,url in enumerate(srcs[:60]):
               out=f'/tmp/lyg/js{i}.js'
               subprocess.run(['curl','-L','--max-time','15','-A','Mozilla/5.0 CargoWatch/1.0','-sS',url,'-o',out], check=False)
               text=Path(out).read_text(errors='ignore') if Path(out).exists() else ''
-              if re.search(r'schedule|ajax|\.do|vsl|voy|pol|pod', text, re.I):
-                  print('\n###',url)
-                  for line in text.splitlines():
-                      if re.search(r'schedule|ajax|\.do|vsl|voy|pol|pod|from|to', line, re.I):
-                          print(line[:1600])
+              hits=[]
+              for line in text.splitlines():
+                  if re.search(r'schedule|ajax|\.do|vsl|voy|pol|pod|search|grid|list|url',line,re.I):
+                      hits.append(re.sub(r'\s+',' ',line).strip()[:1800])
+              if hits:
+                  print('JS',url)
+                  for line in hits[:100]: print(line)
+          print('=== EXACT CASE PAGE HITS ===')
+          for name,html in pages.items():
+              for pat in ['TEN JUPITER','26360E','26360','LIANYUNGANG','PYEONGTAEK']:
+                  if pat.upper() in html.upper(): print(name,pat,'FOUND')
           PY
+
+          echo '=== compact result ==='
+          sed -n '1,500p' lyg-probe-result.txt
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lyg-probe-result.txt
+          git commit -m 'Record LYG Ferry probe result' || true
+          git push origin HEAD:lyg-ferry-probe
