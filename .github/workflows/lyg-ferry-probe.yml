@@ -1,8 +1,8 @@
 name: Probe LYG Ferry schedule endpoints
 
 on:
-  push:
-    branches: [lyg-ferry-probe]
+  pull_request:
+    branches: [main]
     paths:
       - .github/workflows/lyg-ferry-probe.yml
 
@@ -24,27 +24,17 @@ jobs:
 
           echo '=== homepage ==='
           curl -L --fail --max-time 20 -A "$UA" -sS 'https://www.lygferry.com/' -o /tmp/lyg/home.html
-          grep -inE 'TEN JUPITER|TNJP|26360E|26360|PYEONGTAEK|LIANYUNGANG|LYG|PTK' /tmp/lyg/home.html | head -120 || true
+          grep -inE 'TEN JUPITER|TNJP|26360E|26360|PYEONGTAEK|LIANYUNGANG|LYG|PTK' /tmp/lyg/home.html | head -160 || true
 
           echo '=== scheduleView source markers ==='
           curl -L --fail --max-time 20 -A "$UA" -sS 'https://cargo.lygferry.com/biz/scheduleView.do' -o /tmp/lyg/schedule.html
-          grep -inE '<form|<script|schedule|ajax|url:|action=|vsl|voy|pol|pod|from|to|search|select' /tmp/lyg/schedule.html | head -240 || true
+          grep -inE '<form|<script|schedule|ajax|url:|action=|vsl|voy|pol|pod|from|to|search|select' /tmp/lyg/schedule.html | head -280 || true
 
           echo '=== scheduleMonth source markers ==='
           curl -L --fail --max-time 20 -A "$UA" -sS 'https://cargo.lygferry.com/biz/scheduleMonthView.do' -o /tmp/lyg/month.html
-          grep -inE '<form|<script|schedule|ajax|url:|action=|vsl|voy|pol|pod|month|search|select' /tmp/lyg/month.html | head -260 || true
+          grep -inE '<form|<script|schedule|ajax|url:|action=|vsl|voy|pol|pod|month|search|select' /tmp/lyg/month.html | head -320 || true
 
           echo '=== linked JS candidates ==='
-          python - <<'PY'
-          from pathlib import Path
-          import re
-          for name in ['schedule.html','month.html']:
-              html=Path('/tmp/lyg/'+name).read_text(errors='ignore')
-              print(name)
-              for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', html, re.I):
-                  print(src)
-          PY
-
           python - <<'PY'
           from pathlib import Path
           import re, subprocess
@@ -57,7 +47,8 @@ jobs:
               elif src.startswith('/'): url=base+src
               else: url=base+'/'+src.lstrip('./')
               if url not in srcs: srcs.append(url)
-          for i,url in enumerate(srcs[:40]):
+          print('\n'.join(srcs))
+          for i,url in enumerate(srcs[:50]):
               out=f'/tmp/lyg/js{i}.js'
               subprocess.run(['curl','-L','--max-time','15','-A','Mozilla/5.0 CargoWatch/1.0','-sS',url,'-o',out], check=False)
               text=Path(out).read_text(errors='ignore') if Path(out).exists() else ''
@@ -65,5 +56,5 @@ jobs:
                   print('\n###',url)
                   for line in text.splitlines():
                       if re.search(r'schedule|ajax|\.do|vsl|voy|pol|pod|from|to', line, re.I):
-                          print(line[:1200])
+                          print(line[:1600])
           PY
