@@ -46,6 +46,8 @@ const selectSql = `
     eta,
     ata,
     delay_days AS delayDays,
+    carrier_id AS carrierId,
+    preferred_query_source AS preferredQuerySource,
     source,
     source_url AS sourceUrl,
     last_checked_at AS lastCheckedAt,
@@ -121,6 +123,20 @@ function upsertStatement(input: ShipmentInput) {
         port_of_loading = excluded.port_of_loading,
         port_of_discharge = excluded.port_of_discharge,
         status = excluded.status,
+        carrier_id = CASE
+          WHEN shipments.vessel_name <> excluded.vessel_name
+            OR shipments.voyage <> excluded.voyage
+            OR shipments.port_of_loading <> excluded.port_of_loading
+            OR shipments.port_of_discharge <> excluded.port_of_discharge
+          THEN '' ELSE shipments.carrier_id
+        END,
+        preferred_query_source = CASE
+          WHEN shipments.vessel_name <> excluded.vessel_name
+            OR shipments.voyage <> excluded.voyage
+            OR shipments.port_of_loading <> excluded.port_of_loading
+            OR shipments.port_of_discharge <> excluded.port_of_discharge
+          THEN '' ELSE shipments.preferred_query_source
+        END,
         baseline_etd = CASE
           WHEN shipments.baseline_etd = '' AND excluded.baseline_etd <> '' THEN excluded.baseline_etd
           ELSE shipments.baseline_etd
@@ -352,6 +368,15 @@ export async function PATCH(request: Request) {
         const field = key as keyof typeof existing;
         return String(existing[field] ?? "") !== String(row[key as keyof typeof row] ?? "");
       });
+      const sailingIdentityChanged = [
+        "vesselName",
+        "voyage",
+        "portOfLoading",
+        "portOfDischarge",
+      ].some((key) => {
+        const field = key as keyof typeof existing;
+        return String(existing[field] ?? "") !== String(row[key as keyof typeof row] ?? "");
+      });
 
       const result = await getD1()
         .prepare(`
@@ -372,11 +397,15 @@ export async function PATCH(request: Request) {
               ELSE baseline_etd
             END,
             etd = ?,
+            carrier_id = CASE WHEN ? = 1 THEN '' ELSE carrier_id END,
+            preferred_query_source = CASE WHEN ? = 1 THEN '' ELSE preferred_query_source END,
+            atd = CASE WHEN ? = 1 THEN '' ELSE atd END,
             baseline_eta = CASE
               WHEN baseline_eta = '' AND ? <> '' THEN ?
               ELSE baseline_eta
             END,
             eta = ?,
+            ata = CASE WHEN ? = 1 THEN '' ELSE ata END,
             source = ?,
             source_url = CASE WHEN ? = 1 THEN '' ELSE source_url END,
             last_checked_at = CASE WHEN ? = 1 THEN '' ELSE last_checked_at END,
@@ -398,9 +427,13 @@ export async function PATCH(request: Request) {
           row.etd,
           row.etd,
           row.etd,
+          sailingIdentityChanged ? 1 : 0,
+          sailingIdentityChanged ? 1 : 0,
+          sailingIdentityChanged ? 1 : 0,
           row.eta,
           row.eta,
           row.eta,
+          sailingIdentityChanged ? 1 : 0,
           row.source,
           trackingKeysChanged ? 1 : 0,
           trackingKeysChanged ? 1 : 0,

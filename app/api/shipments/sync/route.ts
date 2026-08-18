@@ -30,6 +30,8 @@ const selectSql = `
     eta,
     ata,
     delay_days AS delayDays,
+    carrier_id AS carrierId,
+    preferred_query_source AS preferredQuerySource,
     source,
     source_url AS sourceUrl,
     last_checked_at AS lastCheckedAt,
@@ -46,6 +48,12 @@ function unauthorized() {
     { error: "登录已过期，请重新输入访问密码" },
     { status: 401, headers: { "Cache-Control": "no-store" } }
   );
+}
+
+function routingKey(vesselName?: string, pol?: string, pod?: string) {
+  return [vesselName, pol, pod]
+    .map((value) => (value ?? "").trim().toUpperCase())
+    .join("|");
 }
 
 function subtractDays(value: string, days: number) {
@@ -81,7 +89,37 @@ export async function POST(request: Request) {
     await ensureShipmentsSchema();
     const d1 = getD1();
     const current = await d1.prepare(selectSql).all<TrackingShipment>();
-    const allShipments = current.results ?? [];
+    const profileRows = await d1.prepare(`
+      SELECT vessel_name AS vesselName,
+             port_of_loading AS portOfLoading,
+             port_of_discharge AS portOfDischarge,
+             carrier_id AS carrierId,
+             preferred_query_source AS preferredQuerySource
+      FROM vessel_query_profiles
+    `).all<{
+      vesselName: string;
+      portOfLoading: string;
+      portOfDischarge: string;
+      carrierId: string;
+      preferredQuerySource: string;
+    }>();
+    const profileMap = new Map(
+      (profileRows.results ?? []).map((profile) => [
+        routingKey(profile.vesselName, profile.portOfLoading, profile.portOfDischarge),
+        profile,
+      ])
+    );
+    const allShipments = (current.results ?? []).map((shipment) => {
+      const profile = profileMap.get(
+        routingKey(shipment.vesselName, shipment.portOfLoading, shipment.portOfDischarge)
+      );
+      return {
+        ...shipment,
+        carrierId: shipment.carrierId || "",
+        preferredQuerySource:
+          shipment.preferredQuerySource || profile?.preferredQuerySource || "",
+      };
+    });
     const shipments = (requestedOrderNo
       ? allShipments.filter(
           (shipment) => shipment.orderNo === requestedOrderNo
@@ -185,6 +223,8 @@ export async function POST(request: Request) {
                 eta = ?,
                 ata = ?,
                 delay_days = ?,
+                carrier_id = ?,
+                preferred_query_source = ?,
                 source = ?,
                 source_url = ?,
                 last_checked_at = ?,
@@ -205,6 +245,8 @@ export async function POST(request: Request) {
                 update.eta,
                 update.ata,
                 update.delayDays,
+                update.carrierId || before.carrierId || "",
+                update.preferredQuerySource || update.carrierId || before.preferredQuerySource || before.carrierId || "",
                 update.source,
                 update.sourceUrl,
                 update.lastCheckedAt,
@@ -212,6 +254,30 @@ export async function POST(request: Request) {
                 orderNo
               ),
             ];
+            const learnedCarrierId = update.carrierId || before.carrierId || "";
+            const learnedSource =
+              update.preferredQuerySource || learnedCarrierId || before.preferredQuerySource || "";
+            if (update.vesselName && learnedSource) {
+              statements.push(d1.prepare(`
+                INSERT INTO vessel_query_profiles (
+                  vessel_name, port_of_loading, port_of_discharge,
+                  carrier_id, preferred_query_source, success_count, last_verified_at
+                ) VALUES (?, ?, ?, ?, ?, 1, ?)
+                ON CONFLICT(vessel_name, port_of_loading, port_of_discharge)
+                DO UPDATE SET
+                  carrier_id = excluded.carrier_id,
+                  preferred_query_source = excluded.preferred_query_source,
+                  success_count = vessel_query_profiles.success_count + 1,
+                  last_verified_at = excluded.last_verified_at
+              `).bind(
+                update.vesselName.trim().toUpperCase(),
+                update.portOfLoading.trim().toUpperCase(),
+                update.portOfDischarge.trim().toUpperCase(),
+                learnedCarrierId,
+                learnedSource,
+                update.lastCheckedAt
+              ));
+            }
             if (scheduleChanged) {
               statements.push(d1.prepare(`
                 INSERT INTO shipment_schedule_history (
@@ -240,6 +306,8 @@ export async function POST(request: Request) {
             d1
               .prepare(`
                 UPDATE shipments SET
+                  carrier_id = CASE WHEN ? <> '' THEN ? ELSE carrier_id END,
+                  preferred_query_source = CASE WHEN ? <> '' THEN ? ELSE preferred_query_source END,
                   source = ?,
                   source_url = ?,
                   last_checked_at = ?,
@@ -248,6 +316,10 @@ export async function POST(request: Request) {
                 WHERE order_no = ?
               `)
               .bind(
+                identification.carrierId || "",
+                identification.carrierId || "",
+                identification.preferredQuerySource || "",
+                identification.preferredQuerySource || "",
                 identification.source,
                 identification.sourceUrl,
                 identification.lastCheckedAt,

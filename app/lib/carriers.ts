@@ -16,6 +16,8 @@ export type Carrier = {
 };
 
 export type CarrierDetectionInput = {
+  carrierId?: string;
+  preferredQuerySource?: string;
   source?: string;
   containerNo?: string;
   billOfLading?: string;
@@ -447,6 +449,15 @@ function normalize(value?: string) {
   return (value ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, " ");
 }
 
+function normalizeSource(value?: string) {
+  return (value ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function compact(value?: string) {
   return normalize(value).replaceAll(" ", "");
 }
@@ -462,8 +473,40 @@ function startsWithAny(value: string, prefixes: string[]) {
   return prefixes.some((prefix) => value.startsWith(compact(prefix)));
 }
 
+export function detectQuerySourceCarrier(source?: string) {
+  const sourceKey = normalizeSource(source);
+  if (!sourceKey) return undefined;
+  const genericSources = new Set(["手工录入", "EXCEL导入", "自动识别"]);
+  if (genericSources.has(sourceKey)) return undefined;
+  return carriers.find((carrier) =>
+    carrier.aliases.some((alias) => {
+      const aliasKey = normalizeSource(alias);
+      return Boolean(aliasKey && sourceKey.includes(aliasKey));
+    })
+  );
+}
+
+function carrierFromSource(source?: string) {
+  const sourceKey = normalizeSource(source);
+  if (!sourceKey) return undefined;
+  const fallbackSource = sourceKey.includes("智能回退") || sourceKey.includes("共舱回退");
+  if (fallbackSource) return undefined;
+  return carriers.find((carrier) => {
+    const shortNameKey = normalizeSource(carrier.shortName);
+    if (shortNameKey && sourceKey === shortNameKey) return true;
+    return carrier.aliases.some((alias) => {
+      const aliasKey = normalizeSource(alias);
+      return Boolean(aliasKey && sourceKey === aliasKey);
+    });
+  });
+}
+
 export function detectCarrier(input: CarrierDetectionInput) {
-  const source = normalize(input.source);
+  const explicitCarrier = input.carrierId
+    ? carriers.find((carrier) => carrier.id === input.carrierId)
+    : undefined;
+  if (explicitCarrier) return explicitCarrier;
+
   const container = compact(input.containerNo);
   const document = compact(input.billOfLading || input.bookingNo);
   const vessel = normalize(input.vesselName);
@@ -471,13 +514,7 @@ export function detectCarrier(input: CarrierDetectionInput) {
   const pol = normalizePort(input.portOfLoading);
   const pod = normalizePort(input.portOfDischarge);
 
-  if (source && !["手工录入", "EXCEL导入", "自动识别"].includes(source)) {
-    const explicit = carriers.find((carrier) =>
-      carrier.aliases.some((alias) => source.includes(normalize(alias)))
-    );
-    if (explicit) return explicit;
-  }
-
+  // Strong shipment identity always wins over a previously persisted data source.
   if (container) {
     const byContainer = carriers.find((carrier) =>
       startsWithAny(container, carrier.containerPrefixes)
@@ -507,14 +544,16 @@ export function detectCarrier(input: CarrierDetectionInput) {
   }
 
   if (vessel) {
-    return carriers.find((carrier) =>
+    const byVessel = carriers.find((carrier) =>
       carrier.vesselKeywords.some((keyword) =>
         vesselWithBoundaries.includes(` ${normalize(keyword)} `)
       )
     );
+    if (byVessel) return byVessel;
   }
 
-  return undefined;
+  // Source is only a weak hint when shipment identity cannot determine a carrier.
+  return carrierFromSource(input.source);
 }
 
 export function carrierTrackingUrl(

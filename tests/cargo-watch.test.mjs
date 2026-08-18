@@ -17,13 +17,14 @@ test("includes the shipment dashboard and both supplied orders", async () => {
 });
 
 test("configures cloud persistence and an order-number uniqueness rule", async () => {
-  const [hosting, schema, migration, historyMigration, archiveMigration, baselineMigration] = await Promise.all([
+  const [hosting, schema, migration, historyMigration, archiveMigration, baselineMigration, routingMigration] = await Promise.all([
     readFile(new URL(".openai/hosting.json", root), "utf8"),
     readFile(new URL("db/schema.ts", root), "utf8"),
     readFile(new URL("drizzle/0000_create_shipments.sql", root), "utf8"),
     readFile(new URL("drizzle/0002_shipment_schedule_history.sql", root), "utf8"),
     readFile(new URL("drizzle/0003_archive_shipments.sql", root), "utf8"),
     readFile(new URL("drizzle/0004_baseline_schedule.sql", root), "utf8"),
+    readFile(new URL("drizzle/0005_query_routing.sql", root), "utf8"),
   ]);
 
   assert.equal(JSON.parse(hosting).d1, "DB");
@@ -38,6 +39,11 @@ test("configures cloud persistence and an order-number uniqueness rule", async (
   assert.match(schema, /baselineEta/);
   assert.match(baselineMigration, /baseline_etd/);
   assert.match(baselineMigration, /baseline_eta/);
+  assert.match(schema, /carrierId/);
+  assert.match(schema, /preferredQuerySource/);
+  assert.match(schema, /vesselQueryProfiles/);
+  assert.match(routingMigration, /vessel_query_profiles/);
+  assert.match(routingMigration, /preferred_query_source/);
 });
 
 test("protects the page and shipment API with server-side password sessions", async () => {
@@ -111,7 +117,9 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /findVesselByPrefix/);
   assert.match(tracking, /coscoSessionCookie/);
   assert.match(tracking, /queryCoscoGlobal/);
-  assert.match(tracking, /尚未发布相同船名航次/);
+  assert.match(tracking, /COSCO 官网返回 \${rows.length} 条船期记录/);
+  assert.match(tracking, /没有目标航次/);
+  assert.match(tracking, /没有匹配 \${shipment.portOfLoading} → \${shipment.portOfDischarge}/);
   assert.match(tracking, /ONE 全球官网船期/);
   assert.match(tracking, /HMM 全球官网船期/);
   assert.match(tracking, /Yang Ming 全球官网船期/);
@@ -122,6 +130,21 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /BTbyvslvoy/);
   assert.match(tracking, /parseSinotransTimes/);
   assert.match(tracking, /中外运官方船名库精确匹配后的智能回退/);
+  assert.match(tracking, /discoverUnknownCarrierByOfficialSchedule/);
+  assert.match(tracking, /officialSourceRecognizesVessel/);
+  assert.match(tracking, /preferredQuerySource/);
+  assert.match(syncApi, /vessel_query_profiles/);
+  assert.match(syncApi, /profileMap/);
+  assert.match(syncApi, /success_count = vessel_query_profiles\.success_count \+ 1/);
+  assert.match(tracking, /candidateIds = \["cosco", "one", "hmm", "yang-ming", "maersk", "sinotrans"\]/);
+  assert.doesNotMatch(tracking, /carrier = sinotransVessel/);
+  assert.match(tracking, /persistedQuerySource/);
+  assert.match(tracking, /沿用上次成功的/);
+  assert.match(tracking, /TrackingFailureCategory/);
+  assert.match(tracking, /primaryFailureCategory/);
+  assert.match(tracking, /shouldRememberFallback/);
+  assert.match(tracking, /沿用已验证船名航线记录/);
+  assert.doesNotMatch(syncApi, /shipment\.carrierId \|\| profile\?\.carrierId/);
   assert.match(tracking, /queryOne/);
   assert.match(tracking, /queryHmm/);
   assert.match(tracking, /data\.RTN_DATA\?\.boardList \?\? data\.boardList/);
@@ -178,6 +201,17 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(shipmentApi, /WHERE id = \?/);
   assert.match(shipmentApi, /trackingKeysChanged/);
   assert.match(carriers, /sharedCarrierFallbacks/);
+  assert.match(carriers, /normalizeSource/);
+  assert.match(carriers, /Boolean\(aliasKey && sourceKey\.includes\(aliasKey\)\)/);
+  assert.match(carriers, /detectQuerySourceCarrier/);
+  assert.match(carriers, /sourceKey === shortNameKey/);
+  assert.match(carriers, /sourceKey === aliasKey/);
+  assert.ok(
+    carriers.indexOf("if (container)") < carriers.indexOf("return carrierFromSource(input.source)")
+  );
+  assert.match(shipmentApi, /sailingIdentityChanged/);
+  assert.match(shipmentApi, /atd = CASE WHEN \? = 1 THEN '' ELSE atd END/);
+  assert.match(shipmentApi, /ata = CASE WHEN \? = 1 THEN '' ELSE ata END/);
   assert.match(carriers, /carrierId: "zim",[\s\S]*sourceCarrierIds: \["msc"\]/);
   assert.match(carriers, /Gemini Cooperation/);
   assert.match(carriers, /Ocean Alliance 共舱/);
