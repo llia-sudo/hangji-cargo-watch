@@ -17,13 +17,14 @@ test("includes the shipment dashboard and both supplied orders", async () => {
 });
 
 test("configures cloud persistence and an order-number uniqueness rule", async () => {
-  const [hosting, schema, migration, historyMigration, archiveMigration, baselineMigration] = await Promise.all([
+  const [hosting, schema, migration, historyMigration, archiveMigration, baselineMigration, routingMigration] = await Promise.all([
     readFile(new URL(".openai/hosting.json", root), "utf8"),
     readFile(new URL("db/schema.ts", root), "utf8"),
     readFile(new URL("drizzle/0000_create_shipments.sql", root), "utf8"),
     readFile(new URL("drizzle/0002_shipment_schedule_history.sql", root), "utf8"),
     readFile(new URL("drizzle/0003_archive_shipments.sql", root), "utf8"),
     readFile(new URL("drizzle/0004_baseline_schedule.sql", root), "utf8"),
+    readFile(new URL("drizzle/0005_query_routing.sql", root), "utf8"),
   ]);
 
   assert.equal(JSON.parse(hosting).d1, "DB");
@@ -38,6 +39,11 @@ test("configures cloud persistence and an order-number uniqueness rule", async (
   assert.match(schema, /baselineEta/);
   assert.match(baselineMigration, /baseline_etd/);
   assert.match(baselineMigration, /baseline_eta/);
+  assert.match(schema, /carrierId/);
+  assert.match(schema, /preferredQuerySource/);
+  assert.match(schema, /vesselQueryProfiles/);
+  assert.match(routingMigration, /vessel_query_profiles/);
+  assert.match(routingMigration, /preferred_query_source/);
 });
 
 test("protects the page and shipment API with server-side password sessions", async () => {
@@ -125,6 +131,11 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /parseSinotransTimes/);
   assert.match(tracking, /中外运官方船名库精确匹配后的智能回退/);
   assert.match(tracking, /discoverUnknownCarrierByOfficialSchedule/);
+  assert.match(tracking, /officialSourceRecognizesVessel/);
+  assert.match(tracking, /preferredQuerySource/);
+  assert.match(syncApi, /vessel_query_profiles/);
+  assert.match(syncApi, /profileMap/);
+  assert.match(syncApi, /success_count = vessel_query_profiles\.success_count \+ 1/);
   assert.match(tracking, /candidateIds = \["cosco", "one", "hmm", "yang-ming", "maersk", "sinotrans"\]/);
   assert.doesNotMatch(tracking, /carrier = sinotransVessel/);
   assert.match(tracking, /persistedQuerySource/);

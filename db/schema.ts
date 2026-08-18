@@ -22,6 +22,8 @@ export const shipments = sqliteTable(
     eta: text("eta").notNull().default(""),
     ata: text("ata").notNull().default(""),
     delayDays: integer("delay_days").notNull().default(0),
+    carrierId: text("carrier_id").notNull().default(""),
+    preferredQuerySource: text("preferred_query_source").notNull().default(""),
     source: text("source").notNull().default("手工录入"),
     sourceUrl: text("source_url").notNull().default(""),
     lastCheckedAt: text("last_checked_at").notNull().default(""),
@@ -31,6 +33,27 @@ export const shipments = sqliteTable(
     updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   },
   (table) => [uniqueIndex("shipments_order_no_unique").on(table.orderNo)]
+);
+
+export const vesselQueryProfiles = sqliteTable(
+  "vessel_query_profiles",
+  {
+    vesselName: text("vessel_name").notNull(),
+    portOfLoading: text("port_of_loading").notNull().default(""),
+    portOfDischarge: text("port_of_discharge").notNull().default(""),
+    carrierId: text("carrier_id").notNull().default(""),
+    preferredQuerySource: text("preferred_query_source").notNull().default(""),
+    successCount: integer("success_count").notNull().default(0),
+    lastVerifiedAt: text("last_verified_at").notNull().default(""),
+  },
+  (table) => [
+    uniqueIndex("vessel_query_profiles_route_unique").on(
+      table.vesselName,
+      table.portOfLoading,
+      table.portOfDischarge
+    ),
+    index("idx_vessel_query_profiles_source").on(table.preferredQuerySource),
+  ]
 );
 
 export const authAttempts = sqliteTable("auth_attempts", {

@@ -14,6 +14,8 @@ import {
 export type TrackingShipment = {
   id: number;
   orderNo: string;
+  carrierId?: string;
+  preferredQuerySource?: string;
   vesselName: string;
   voyage: string;
   billOfLading: string;
@@ -38,6 +40,8 @@ export type TrackingShipment = {
 
 export type TrackingUpdate = Pick<
   TrackingShipment,
+  | "carrierId"
+  | "preferredQuerySource"
   | "vesselName"
   | "voyage"
   | "portOfLoading"
@@ -65,7 +69,7 @@ export type TrackingResult =
       message: string;
       identification: Pick<
         TrackingUpdate,
-        "source" | "sourceUrl" | "lastCheckedAt" | "notes"
+        "carrierId" | "preferredQuerySource" | "source" | "sourceUrl" | "lastCheckedAt" | "notes"
       >;
     }
   | {
@@ -75,7 +79,7 @@ export type TrackingResult =
       message: string;
       check?: Pick<
         TrackingUpdate,
-        "source" | "sourceUrl" | "lastCheckedAt" | "notes"
+        "carrierId" | "preferredQuerySource" | "source" | "sourceUrl" | "lastCheckedAt" | "notes"
       >;
     };
 
@@ -2176,6 +2180,48 @@ function trackingErrorReason(error: unknown) {
   return trackingErrorDetail(error).reason;
 }
 
+async function officialSourceRecognizesVessel(
+  carrier: Carrier,
+  shipment: TrackingShipment,
+  session: TrackingSession
+) {
+  if (!shipment.vesselName) return false;
+  const vesselKey = identifier(shipment.vesselName);
+  try {
+    switch (carrier.id) {
+      case "cosco":
+        await findCoscoVesselCode(shipment.vesselName, session);
+        return true;
+      case "one":
+        await findOneVesselCode(shipment.vesselName, session);
+        return true;
+      case "hmm":
+        return (await loadHmmVessels(session)).some(
+          (item) => identifier(item.optNm ?? "") === vesselKey
+        );
+      case "yang-ming": {
+        if (!session.yangMingVessels) {
+          session.yangMingVessels = yangMingGet<YangMingVessel[]>("GetVessels");
+          session.yangMingVessels.catch(() => { session.yangMingVessels = undefined; });
+        }
+        return (await session.yangMingVessels).some(
+          (item) => identifier(item.vesselName ?? "") === vesselKey
+        );
+      }
+      case "maersk":
+        return (await loadMaerskVessels(session)).some(
+          (item) => identifier(item.vesselName ?? "") === vesselKey
+        );
+      case "sinotrans":
+        return Boolean(await findSinotransVessel(shipment));
+      default:
+        return false;
+    }
+  } catch {
+    return false;
+  }
+}
+
 async function discoverUnknownCarrierByOfficialSchedule(
   shipment: TrackingShipment,
   session: TrackingSession
@@ -2188,6 +2234,9 @@ async function discoverUnknownCarrierByOfficialSchedule(
     .map((id) => carriers.find((carrier) => carrier.id === id))
     .filter((carrier): carrier is Carrier => Boolean(carrier));
   const attempts = candidates.map(async (sourceCarrier) => {
+    if (!await officialSourceRecognizesVessel(sourceCarrier, shipment, session)) {
+      throw new Error(`${sourceCarrier.shortName} 官方船名库未命中`);
+    }
     const update = await cachedCarrierQuery(sourceCarrier, shipment, session, {
       allowVoyageAlias: false,
       sourceCarrier,
@@ -2230,6 +2279,8 @@ export async function syncShipment(
           message: `官方船期交叉识别为 ${carrier.shortName}，查询成功`,
           update: {
             ...first.value.update,
+            carrierId: carrier.id,
+            preferredQuerySource: carrier.id,
             notes: `未知船公司官方交叉识别：${carrier.shortName} 的官网同时匹配船名、航次及有序两港。${first.value.update.notes}`,
           },
         };
@@ -2247,6 +2298,8 @@ export async function syncShipment(
             message: `官方船期交叉识别为 ${carrier.shortName}，查询成功`,
             update: {
               ...officialMatch.update,
+              carrierId: carrier.id,
+              preferredQuerySource: carrier.id,
               notes: `未知船公司官方交叉识别：${carrier.shortName} 的官网同时匹配船名、航次及有序两港。${officialMatch.update.notes}`,
             },
           };
@@ -2264,12 +2317,17 @@ export async function syncShipment(
       };
     }
 
-    const persistedQuerySource = detectQuerySourceCarrier(shipment.source);
+    const persistedQuerySource =
+      (shipment.preferredQuerySource
+        ? carriers.find((item) => item.id === shipment.preferredQuerySource)
+        : undefined) ??
+      (/回退/.test(shipment.source)
+        ? detectQuerySourceCarrier(shipment.source)
+        : undefined);
     if (
       persistedQuerySource &&
       persistedQuerySource.id !== carrier.id &&
-      supportsAutomaticCarrierQuery(persistedQuerySource) &&
-      /回退/.test(shipment.source)
+      supportsAutomaticCarrierQuery(persistedQuerySource)
     ) {
       try {
         const preferredUpdate = await cachedCarrierQuery(
@@ -2289,6 +2347,8 @@ export async function syncShipment(
           message: `沿用上次成功的 ${persistedQuerySource.shortName} 快速查询源`,
           update: {
             ...preferredUpdate,
+            carrierId: carrier.id,
+            preferredQuerySource: persistedQuerySource.id,
             voyage: shipment.voyage,
             source: `${preferredUpdate.source}（智能回退）`,
             notes: `快速查询：沿用上次成功来源 ${persistedQuerySource.shortName}${partnerVoyageNote(shipment.voyage, partnerVoyage)}。${preferredUpdate.notes}`,
@@ -2368,7 +2428,11 @@ export async function syncShipment(
           ok: true,
           orderNo: shipment.orderNo,
           message: `${update.source} 查询成功`,
-          update,
+          update: {
+            ...update,
+            carrierId: carrier.id,
+            preferredQuerySource: carrier.id,
+          },
         };
       } catch (error) {
         primaryError = trackingErrorReason(error);
@@ -2408,6 +2472,8 @@ export async function syncShipment(
           winner.sourceCarrier.id === "sinotrans" ? "智能回退" : "共舱回退";
         const update: TrackingUpdate = {
           ...winner.update,
+          carrierId: carrier.id,
+          preferredQuerySource: winner.sourceCarrier.id,
           // The order keeps the customer's voyage number. The partner alias is
           // evidence for this lookup and is recorded in notes instead.
           voyage: shipment.voyage,
@@ -2449,6 +2515,8 @@ export async function syncShipment(
         orderNo: shipment.orderNo,
         message: `${method}为 ${carrier.shortName}；${availability}${fallbackStatus}`,
         identification: {
+          carrierId: carrier.id,
+          preferredQuerySource: carrier.id,
           source: `${carrier.shortName}（${method}）`,
           sourceUrl: officialUrl,
           lastCheckedAt: chinaTimestamp(),

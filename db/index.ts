@@ -45,6 +45,8 @@ export function ensureShipmentsSchema() {
             eta TEXT NOT NULL DEFAULT '',
             ata TEXT NOT NULL DEFAULT '',
             delay_days INTEGER NOT NULL DEFAULT 0,
+            carrier_id TEXT NOT NULL DEFAULT '',
+            preferred_query_source TEXT NOT NULL DEFAULT '',
             source TEXT NOT NULL DEFAULT '手工录入',
             source_url TEXT NOT NULL DEFAULT '',
             last_checked_at TEXT NOT NULL DEFAULT '',
@@ -80,6 +82,22 @@ export function ensureShipmentsSchema() {
           CREATE INDEX IF NOT EXISTS idx_shipment_schedule_history_shipment_checked
           ON shipment_schedule_history(shipment_id, checked_at)
         `),
+        d1.prepare(`
+          CREATE TABLE IF NOT EXISTS vessel_query_profiles (
+            vessel_name TEXT NOT NULL,
+            port_of_loading TEXT NOT NULL DEFAULT '',
+            port_of_discharge TEXT NOT NULL DEFAULT '',
+            carrier_id TEXT NOT NULL DEFAULT '',
+            preferred_query_source TEXT NOT NULL DEFAULT '',
+            success_count INTEGER NOT NULL DEFAULT 0,
+            last_verified_at TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (vessel_name, port_of_loading, port_of_discharge)
+          )
+        `),
+        d1.prepare(`
+          CREATE INDEX IF NOT EXISTS idx_vessel_query_profiles_source
+          ON vessel_query_profiles(preferred_query_source)
+        `),
         d1.prepare("PRAGMA optimize"),
       ])
       .then(async () => {
@@ -102,6 +120,16 @@ export function ensureShipmentsSchema() {
         if (!columnNames.has("baseline_eta")) {
           await d1
             .prepare("ALTER TABLE shipments ADD COLUMN baseline_eta TEXT NOT NULL DEFAULT ''")
+            .run();
+        }
+        if (!columnNames.has("carrier_id")) {
+          await d1
+            .prepare("ALTER TABLE shipments ADD COLUMN carrier_id TEXT NOT NULL DEFAULT ''")
+            .run();
+        }
+        if (!columnNames.has("preferred_query_source")) {
+          await d1
+            .prepare("ALTER TABLE shipments ADD COLUMN preferred_query_source TEXT NOT NULL DEFAULT ''")
             .run();
         }
         await d1.prepare(`
