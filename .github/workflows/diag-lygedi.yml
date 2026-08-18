@@ -14,53 +14,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch sailing page and inspect requests
+      - name: Inspect sailing search form
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY' > /tmp/diag.txt 2>&1
-          import re, requests
+          import re, requests, html
           from urllib.parse import urljoin
           url='https://www.lygedi.com/SailingDate.html'
           s=requests.Session()
-          headers={
-            'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36',
-            'Accept':'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language':'zh-CN,zh;q=0.9,en;q=0.8',
-          }
+          headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36','Accept-Language':'zh-CN,zh;q=0.9,en;q=0.8'}
           r=s.get(url,headers=headers,timeout=30)
-          print('PAGE_STATUS', r.status_code)
-          print('PAGE_URL', r.url)
-          print('CONTENT_TYPE', r.headers.get('content-type'))
-          raw=r.content
-          text=None
-          for enc in [r.encoding,'utf-8','gb18030','gbk']:
-            if not enc: continue
-            try:
-              candidate=raw.decode(enc)
-              if '船期' in candidate or 'Sailing' in candidate or '<html' in candidate.lower():
-                text=candidate; print('DECODED_AS', enc); break
-            except Exception: pass
-          if text is None: text=raw.decode('utf-8','replace')
-          print('HTML_LEN', len(text))
-          print('HTML_START')
-          print(text[:20000])
-          print('HTML_END')
-          scripts=re.findall(r'<script[^>]+src=[\"\']([^\"\']+)', text, flags=re.I)
-          forms=re.findall(r'<form[^>]+action=[\"\']([^\"\']+)', text, flags=re.I)
-          print('FORMS', forms)
-          print('SCRIPTS', scripts)
-          for src in scripts:
-            jsurl=urljoin(r.url, src)
-            try:
-              jr=s.get(jsurl,headers=headers,timeout=30)
-              jtxt=jr.content.decode(jr.encoding or 'utf-8','replace')
-              print('\nJS', jsurl, 'STATUS', jr.status_code, 'LEN', len(jtxt))
-              for line in jtxt.splitlines():
-                if any(k.lower() in line.lower() for k in ['sailing','船名','vessel','ajax','shipname','voyage','url:','$.post','$.get']):
-                  print(line[:3000])
-            except Exception as e:
-              print('JS_ERROR', jsurl, repr(e))
+          text=r.content.decode('utf-8','replace')
+          print('PAGE_STATUS',r.status_code,'URL',r.url,'LEN',len(text))
+          form_matches=list(re.finditer(r'<form\b[^>]*>.*?</form>',text,re.I|re.S))
+          print('FORM_COUNT',len(form_matches))
+          for i,m in enumerate(form_matches):
+            block=m.group(0)
+            tag=re.match(r'<form\b[^>]*>',block,re.I|re.S).group(0)
+            print('\nFORM',i,tag)
+            for elem in re.findall(r'<(?:input|select|option|button|textarea)\b[^>]*>',block,re.I|re.S):
+              clean=re.sub(r'\s+',' ',elem)
+              print(clean[:1000])
+            plain=re.sub(r'<[^>]+>',' ',block)
+            plain=html.unescape(re.sub(r'\s+',' ',plain))
+            print('FORM_TEXT',plain[:5000])
+          for needle in ['船名','航次','开航','查询','TEN JUPITER','SailingDate','Form1']:
+            print('\nCONTEXT',needle)
+            pos=0; count=0
+            while True:
+              pos=text.find(needle,pos)
+              if pos<0 or count>=10: break
+              print(re.sub(r'\s+',' ',text[max(0,pos-500):pos+1200]))
+              pos += len(needle); count += 1
           PY
           cat /tmp/diag.txt
       - name: Publish diagnostic result branch
