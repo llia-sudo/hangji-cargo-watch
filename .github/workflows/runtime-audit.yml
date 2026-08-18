@@ -1,0 +1,39 @@
+name: Runtime audit TEN JUPITER
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/runtime-audit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Read TEN JUPITER runtime state from D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          {
+            echo '=== CURRENT SHIPMENT ==='
+            npx wrangler d1 execute hangji-cargo-watch --remote --command "SELECT id, order_no, vessel_name, voyage, bill_of_lading, booking_no, container_no, port_of_loading, port_of_discharge, carrier_id, preferred_query_source, status, baseline_etd, etd, atd, baseline_eta, eta, ata, source, source_url, last_checked_at, notes, updated_at FROM shipments WHERE UPPER(vessel_name) = 'TEN JUPITER' ORDER BY updated_at DESC LIMIT 10;"
+            echo
+            echo '=== RECENT HISTORY FOR MATCHED SHIPMENT ==='
+            npx wrangler d1 execute hangji-cargo-watch --remote --command "SELECT h.shipment_id, s.order_no, h.checked_at, h.vessel_name, h.voyage, h.status, h.etd, h.atd, h.eta, h.ata, h.source FROM shipment_schedule_history h JOIN shipments s ON s.id = h.shipment_id WHERE UPPER(s.vessel_name) = 'TEN JUPITER' ORDER BY h.checked_at DESC LIMIT 20;"
+          } > runtime-audit.txt 2>&1
+      - name: Publish audit result to temporary branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f runtime-audit.txt
+          git commit -m "Record TEN JUPITER runtime audit"
+          git push --force origin HEAD:runtime-audit
