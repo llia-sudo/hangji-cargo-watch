@@ -1,0 +1,69 @@
+name: Probe LYG Ferry schedule endpoints
+
+on:
+  push:
+    branches: [lyg-ferry-probe]
+    paths:
+      - .github/workflows/lyg-ferry-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe public LYG Ferry pages
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/lyg
+          UA='Mozilla/5.0 CargoWatch/1.0'
+
+          echo '=== homepage ==='
+          curl -L --fail --max-time 20 -A "$UA" -sS 'https://www.lygferry.com/' -o /tmp/lyg/home.html
+          grep -inE 'TEN JUPITER|TNJP|26360E|26360|PYEONGTAEK|LIANYUNGANG|LYG|PTK' /tmp/lyg/home.html | head -120 || true
+
+          echo '=== scheduleView source markers ==='
+          curl -L --fail --max-time 20 -A "$UA" -sS 'https://cargo.lygferry.com/biz/scheduleView.do' -o /tmp/lyg/schedule.html
+          grep -inE '<form|<script|schedule|ajax|url:|action=|vsl|voy|pol|pod|from|to|search|select' /tmp/lyg/schedule.html | head -240 || true
+
+          echo '=== scheduleMonth source markers ==='
+          curl -L --fail --max-time 20 -A "$UA" -sS 'https://cargo.lygferry.com/biz/scheduleMonthView.do' -o /tmp/lyg/month.html
+          grep -inE '<form|<script|schedule|ajax|url:|action=|vsl|voy|pol|pod|month|search|select' /tmp/lyg/month.html | head -260 || true
+
+          echo '=== linked JS candidates ==='
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          for name in ['schedule.html','month.html']:
+              html=Path('/tmp/lyg/'+name).read_text(errors='ignore')
+              print(name)
+              for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', html, re.I):
+                  print(src)
+          PY
+
+          python - <<'PY'
+          from pathlib import Path
+          import re, subprocess
+          base='https://cargo.lygferry.com'
+          html='\n'.join(Path('/tmp/lyg/'+n).read_text(errors='ignore') for n in ['schedule.html','month.html'])
+          srcs=[]
+          for src in re.findall(r'<script[^>]+src=["\']([^"\']+)', html, re.I):
+              if src.startswith('//'): url='https:'+src
+              elif src.startswith('http'): url=src
+              elif src.startswith('/'): url=base+src
+              else: url=base+'/'+src.lstrip('./')
+              if url not in srcs: srcs.append(url)
+          for i,url in enumerate(srcs[:40]):
+              out=f'/tmp/lyg/js{i}.js'
+              subprocess.run(['curl','-L','--max-time','15','-A','Mozilla/5.0 CargoWatch/1.0','-sS',url,'-o',out], check=False)
+              text=Path(out).read_text(errors='ignore') if Path(out).exists() else ''
+              if re.search(r'schedule|ajax|\.do|vsl|voy|pol|pod', text, re.I):
+                  print('\n###',url)
+                  for line in text.splitlines():
+                      if re.search(r'schedule|ajax|\.do|vsl|voy|pol|pod|from|to', line, re.I):
+                          print(line[:1200])
+          PY
