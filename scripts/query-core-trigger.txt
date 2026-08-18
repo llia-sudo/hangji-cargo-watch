@@ -1,1 +1,1 @@
-Trigger query-core PR validation workflow with the robust Python patcher.
+Trigger PR validation for additive carrier identity and learned query routing state.
