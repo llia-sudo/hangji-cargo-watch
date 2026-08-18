@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
   pull-requests: write
 
 jobs:
@@ -31,4 +32,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           DEPLOY_OUTCOME: ${{ steps.cloudflare_deploy.outcome }}
-        run: gh pr comment 1 --body "Deployment audit for commit ${GITHUB_SHA}: Cloudflare deploy outcome = ${DEPLOY_OUTCOME}."
+        run: gh issue comment 1 --body "Deployment audit for commit ${GITHUB_SHA}: Cloudflare deploy outcome = ${DEPLOY_OUTCOME}."
