@@ -60,6 +60,13 @@ type SyncResponse = {
 type SyncFailureDetail = {
   orderNo: string;
   message: string;
+  lastUpdated: string;
+};
+
+type SyncSummary = {
+  total: number;
+  succeeded: number;
+  anomalies: number;
 };
 
 type Modal = "add" | "edit" | "import" | null;
@@ -195,6 +202,7 @@ export default function TrackerApp() {
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState("");
   const [syncFailureDetails, setSyncFailureDetails] = useState<SyncFailureDetail[]>([]);
+  const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null);
   const [toast, setToast] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("全部");
@@ -211,6 +219,7 @@ export default function TrackerApp() {
     setLoading(true);
     setError("");
     setSyncFailureDetails([]);
+    setSyncSummary(null);
     try {
       const response = await fetch("/api/shipments", { cache: "no-store" });
       if (response.status === 401) {
@@ -236,6 +245,7 @@ export default function TrackerApp() {
 
     if (singleOrderNo) {
       setSyncFailureDetails([]);
+      setSyncSummary(null);
       const result = data.results?.find(
         (item) => item.orderNo === singleOrderNo
       );
@@ -253,20 +263,19 @@ export default function TrackerApp() {
     const succeeded = data.summary?.succeeded ?? 0;
     const identified = data.summary?.identified ?? 0;
     const failed = data.summary?.failed ?? 0;
-    setToast(`已查询 ${total} 票，船期更新 ${succeeded} 票${identified ? `，识别船公司 ${identified} 票` : ""}`);
-    if (failed > 0) {
-      const details = (data.results ?? [])
-        .filter((result) => !result.ok && !result.identified)
-        .map((result) => ({
-          orderNo: result.orderNo,
-          message: result.message,
-        }));
-      setSyncFailureDetails(details);
-      setError(`${failed} 票暂未更新`);
-    } else {
-      setSyncFailureDetails([]);
-      setError("");
-    }
+    const issueResults = (data.results ?? []).filter((result) => !result.ok);
+    const details = issueResults.map((result) => {
+      const shipment = updated.find((item) => item.orderNo === result.orderNo);
+      return {
+        orderNo: result.orderNo,
+        message: result.message,
+        lastUpdated: shipment?.lastCheckedAt || shipment?.updatedAt || "",
+      };
+    });
+    const anomalies = data.summary ? identified + failed : details.length;
+    setSyncSummary({ total, succeeded, anomalies });
+    setSyncFailureDetails(details);
+    setError("");
   };
 
   const syncAllShipments = async () => {
@@ -274,6 +283,7 @@ export default function TrackerApp() {
     setSyncing(true);
     setError("");
     setSyncFailureDetails([]);
+    setSyncSummary(null);
     try {
       const response = await fetch("/api/shipments/sync", {
         method: "POST",
@@ -298,6 +308,7 @@ export default function TrackerApp() {
     setSyncingOrderNo(shipment.orderNo);
     setError("");
     setSyncFailureDetails([]);
+    setSyncSummary(null);
     try {
       const response = await fetch("/api/shipments/sync", {
         method: "POST",
@@ -612,20 +623,47 @@ export default function TrackerApp() {
               </div>
             </div>
 
+            {syncSummary && (
+              <div
+                role="status"
+                style={{
+                  position: "relative",
+                  margin: "12px 22px 0",
+                  padding: "11px 38px 10px 14px",
+                  border: "1px solid #f0b56f",
+                  borderRadius: 7,
+                  background: "#fff7ed",
+                  color: "#684321",
+                  fontSize: 11,
+                }}
+              >
+                <strong style={{ display: "block", marginBottom: syncFailureDetails.length ? 8 : 0, color: "#53311b", fontSize: 13 }}>
+                  已查询 <b style={{ color: "#d97706" }}>{syncSummary.total}</b> 票，船期更新 <b style={{ color: "#d97706" }}>{syncSummary.succeeded}</b> 票，异常 <b style={{ color: "#c2410c" }}>{syncSummary.anomalies}</b> 票
+                </strong>
+                {syncFailureDetails.length > 0 ? (
+                  <div style={{ display: "grid", gap: 0 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "120px minmax(0, 1fr) 128px", gap: 12, padding: "0 0 5px", borderBottom: "1px solid #f2c99b", color: "#8a5a2f", fontWeight: 750 }}>
+                      <span>订单号</span><span>异常详情</span><span>最后更新</span>
+                    </div>
+                    {syncFailureDetails.map((detail) => (
+                      <div key={`${detail.orderNo}-${detail.message}`} style={{ display: "grid", gridTemplateColumns: "120px minmax(0, 1fr) 128px", gap: 12, alignItems: "start", padding: "7px 0", borderBottom: "1px solid rgba(240, 181, 111, 0.38)", lineHeight: 1.5 }}>
+                        <b style={{ color: "#7c3f15" }}>{detail.orderNo}</b>
+                        <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>{detail.message}</span>
+                        <span style={{ whiteSpace: "nowrap", color: "#8a6344" }}>{detail.lastUpdated ? detail.lastUpdated.replace("T", " ").slice(0, 16) : "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <span style={{ color: "#7a624d" }}>本次查询无异常订单。</span>
+                )}
+                <button type="button" aria-label="关闭查询结果" onClick={() => { setSyncSummary(null); setSyncFailureDetails([]); }} style={{ position: "absolute", right: 8, top: 6, border: 0, background: "transparent", color: "#8a5a2f", fontSize: 18, cursor: "pointer" }}>×</button>
+              </div>
+            )}
+
             {error && (
               <div className="error-box" role="alert">
                 <strong>{error}</strong>
-                {syncFailureDetails.length > 0 && (
-                  <ul>
-                    {syncFailureDetails.map((detail) => (
-                      <li key={`${detail.orderNo}-${detail.message}`}>
-                        <b>{detail.orderNo}</b>
-                        <span>{detail.message}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <button type="button" aria-label="关闭错误提示" onClick={() => { setError(""); setSyncFailureDetails([]); }}>×</button>
+                <button type="button" aria-label="关闭错误提示" onClick={() => setError("")}>×</button>
               </div>
             )}
 
