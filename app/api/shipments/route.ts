@@ -391,22 +391,25 @@ export async function PATCH(request: Request) {
             container_no = ?,
             port_of_loading = ?,
             port_of_discharge = ?,
-            status = ?,
+            status = CASE WHEN ? = 1 THEN '待查询' ELSE ? END,
             baseline_etd = CASE
+              WHEN ? = 1 THEN ''
               WHEN baseline_etd = '' AND ? <> '' THEN ?
               ELSE baseline_etd
             END,
-            etd = ?,
+            etd = CASE WHEN ? = 1 THEN '' ELSE ? END,
             carrier_id = CASE WHEN ? = 1 THEN '' ELSE carrier_id END,
             preferred_query_source = CASE WHEN ? = 1 THEN '' ELSE preferred_query_source END,
             atd = CASE WHEN ? = 1 THEN '' ELSE atd END,
             baseline_eta = CASE
+              WHEN ? = 1 THEN ''
               WHEN baseline_eta = '' AND ? <> '' THEN ?
               ELSE baseline_eta
             END,
-            eta = ?,
+            eta = CASE WHEN ? = 1 THEN '' ELSE ? END,
             ata = CASE WHEN ? = 1 THEN '' ELSE ata END,
-            source = ?,
+            delay_days = CASE WHEN ? = 1 THEN 0 ELSE delay_days END,
+            source = CASE WHEN ? = 1 THEN '手工录入' ELSE ? END,
             source_url = CASE WHEN ? = 1 THEN '' ELSE source_url END,
             last_checked_at = CASE WHEN ? = 1 THEN '' ELSE last_checked_at END,
             notes = ?,
@@ -423,16 +426,23 @@ export async function PATCH(request: Request) {
           row.containerNo,
           row.portOfLoading,
           row.portOfDischarge,
+          sailingIdentityChanged ? 1 : 0,
           row.status,
+          sailingIdentityChanged ? 1 : 0,
           row.etd,
           row.etd,
+          sailingIdentityChanged ? 1 : 0,
           row.etd,
+          sailingIdentityChanged ? 1 : 0,
           sailingIdentityChanged ? 1 : 0,
           sailingIdentityChanged ? 1 : 0,
           sailingIdentityChanged ? 1 : 0,
           row.eta,
           row.eta,
+          sailingIdentityChanged ? 1 : 0,
           row.eta,
+          sailingIdentityChanged ? 1 : 0,
+          sailingIdentityChanged ? 1 : 0,
           sailingIdentityChanged ? 1 : 0,
           row.source,
           trackingKeysChanged ? 1 : 0,
@@ -444,6 +454,13 @@ export async function PATCH(request: Request) {
 
       if (!result.meta.changes) {
         return Response.json({ error: "订单信息没有保存" }, { status: 500 });
+      }
+
+      if (sailingIdentityChanged) {
+        await getD1()
+          .prepare("DELETE FROM shipment_schedule_history WHERE shipment_id = ?")
+          .bind(id)
+          .run();
       }
 
       const { results } = await getD1().prepare(selectSql).all<{ id: number }>();
