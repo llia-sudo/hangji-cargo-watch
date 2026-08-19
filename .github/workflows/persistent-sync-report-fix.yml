@@ -1,0 +1,269 @@
+name: Apply persistent sync report fix
+
+on:
+  push:
+    branches:
+      - fix-persistent-sync-report
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-test:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Apply UI changes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/TrackerApp.tsx')
+          text = path.read_text()
+          text = text.replace('type SyncFailureDetail = {\n  orderNo: string;\n  message: string;\n};', 'type SyncIssueDetail = {\n  orderNo: string;\n  message: string;\n  identified?: boolean;\n};')
+          text = text.replace('const [syncFailureDetails, setSyncFailureDetails] = useState<SyncFailureDetail[]>([]);', 'const [syncIssueDetails, setSyncIssueDetails] = useState<SyncIssueDetail[]>([]);\n  const [syncReport, setSyncReport] = useState("");')
+          text = text.replace('setSyncFailureDetails([]);', 'setSyncIssueDetails([]);')
+
+          start = text.index('  const applySyncResponse = (data: SyncResponse, singleOrderNo?: string) => {')
+          end = text.index('\n  const syncAllShipments = async () => {', start)
+          new_block = '''  const applySyncResponse = (data: SyncResponse, singleOrderNo?: string) => {
+    const updated = data.shipments ?? [];
+    setShipments(updated);
+    setSelected((current) =>
+      current ? updated.find((item) => item.id === current.id) ?? current : null
+    );
+
+    const issueDetails = (data.results ?? []).flatMap((result) => {
+      const shipment = updated.find((item) => item.orderNo === result.orderNo);
+      const missing: string[] = [];
+      if (shipment) {
+        if (!shipment.etd && !shipment.atd) missing.push("ETD/ATD 未获取");
+        if (!shipment.eta && !shipment.ata) missing.push("ETA/ATA 未获取");
+      }
+      if (result.ok && missing.length === 0) return [];
+      return [{
+        orderNo: result.orderNo,
+        identified: result.identified,
+        message: [missing.join("；"), result.message].filter(Boolean).join("；") || "船期未更新",
+      }];
+    });
+
+    if (singleOrderNo) {
+      const result = data.results?.find((item) => item.orderNo === singleOrderNo);
+      const issue = issueDetails.find((item) => item.orderNo === singleOrderNo);
+      setSyncIssueDetails(issue ? [issue] : []);
+      setSyncReport(
+        result?.ok && !issue
+          ? `${singleOrderNo}：船期已更新，信息完整`
+          : `${singleOrderNo}：查询完成，需要关注`
+      );
+      setError("");
+      return;
+    }
+
+    const total = data.summary?.total ?? updated.length;
+    const succeeded = data.summary?.succeeded ?? 0;
+    const identified = data.summary?.identified ?? 0;
+    const failed = data.summary?.failed ?? 0;
+    setSyncIssueDetails(issueDetails);
+    setSyncReport(
+      `已查询 ${total} 票 · 船期更新 ${succeeded} 票` +
+      `${identified ? ` · 仅识别船公司 ${identified} 票（未更新船期）` : ""}` +
+      `${failed ? ` · 查询失败 ${failed} 票` : ""}` +
+      `${issueDetails.length ? ` · 需要关注 ${issueDetails.length} 票` : " · 全部正常"}`
+    );
+    setError("");
+  };
+'''
+          text = text[:start] + new_block + text[end:]
+
+          text = text.replace('    setSyncing(true);\n    setError("");\n    setSyncIssueDetails([]);', '    setSyncing(true);\n    setError("");\n    setSyncReport("");\n    setSyncIssueDetails([]);', 1)
+          text = text.replace('    setSyncingOrderNo(shipment.orderNo);\n    setError("");\n    setSyncIssueDetails([]);', '    setSyncingOrderNo(shipment.orderNo);\n    setError("");\n    setSyncReport("");\n    setSyncIssueDetails([]);', 1)
+
+          old_error = '''            {error && (
+              <div className="error-box" role="alert">
+                <strong>{error}</strong>
+                {syncIssueDetails.length > 0 && (
+                  <ul>
+                    {syncIssueDetails.map((detail) => (
+                      <li key={`${detail.orderNo}-${detail.message}`}>
+                        <b>{detail.orderNo}</b>
+                        <span>{detail.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <button type="button" aria-label="关闭错误提示" onClick={() => { setError(""); setSyncIssueDetails([]); }}>×</button>
+              </div>
+            )}
+'''
+          new_ui = '''            {syncReport && (
+              <div className={`sync-report ${syncIssueDetails.length ? "has-issues" : "all-good"}`} role="status">
+                <div className="sync-report-heading">
+                  <span className="sync-report-mark">{syncIssueDetails.length ? "!" : "✓"}</span>
+                  <strong>{syncReport}</strong>
+                  <button type="button" aria-label="关闭查询结果" onClick={() => { setSyncReport(""); setSyncIssueDetails([]); }}>×</button>
+                </div>
+                {syncIssueDetails.length > 0 && (
+                  <ul>
+                    {syncIssueDetails.map((detail) => (
+                      <li key={`${detail.orderNo}-${detail.message}`}>
+                        <b>{detail.orderNo}</b>
+                        <span><em>{detail.identified ? "已识别船公司，但未更新完整船期" : "查询结果不完整"}</em>{detail.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {error && (
+              <div className="error-box" role="alert">
+                <strong>{error}</strong>
+                <button type="button" aria-label="关闭错误提示" onClick={() => setError("")}>×</button>
+              </div>
+            )}
+'''
+          if old_error not in text:
+            raise SystemExit('error box block not found')
+          text = text.replace(old_error, new_ui, 1)
+          path.write_text(text)
+
+          css_path = Path('app/globals.css')
+          css = css_path.read_text()
+          marker = '.error-box {\n'
+          if marker not in css:
+            raise SystemExit('css marker not found')
+          sync_css = '''.sync-report {
+  margin: 14px 22px 0;
+  padding: 14px 16px;
+  border: 1px solid #e2d39a;
+  border-left: 4px solid var(--amber);
+  border-radius: 9px;
+  background: #fffaf0;
+  color: #66552d;
+  font-size: 12px;
+}
+
+.sync-report.all-good {
+  border-color: #c8dfd5;
+  border-left-color: var(--green);
+  background: #f4faf7;
+  color: #315a4b;
+}
+
+.sync-report-heading {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.sync-report-heading > strong {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.sync-report-mark {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #f5e7b5;
+  color: #8b661b;
+  font-weight: 850;
+}
+
+.sync-report.all-good .sync-report-mark {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.sync-report-heading button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.sync-report ul {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0 34px;
+  padding: 0;
+  list-style: none;
+}
+
+.sync-report li {
+  display: grid;
+  grid-template-columns: minmax(105px, auto) 1fr;
+  gap: 10px;
+  align-items: start;
+  padding-top: 8px;
+  border-top: 1px solid rgba(139, 102, 27, 0.15);
+  line-height: 1.5;
+}
+
+.sync-report li b {
+  color: #614a16;
+  font-size: 12px;
+}
+
+.sync-report li span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sync-report li em {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #f6e8bd;
+  color: #7e5d17;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+'''
+          css = css.replace(marker, sync_css + marker, 1)
+          css_path.write_text(css)
+          PY
+      - name: Verify intended behavior
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          t = Path('app/TrackerApp.tsx').read_text()
+          c = Path('app/globals.css').read_text()
+          assert '仅识别船公司 ${identified} 票（未更新船期）' in t
+          assert 'ETD/ATD 未获取' in t
+          assert 'ETA/ATA 未获取' in t
+          assert 'sync-report' in t and '.sync-report {' in c
+          assert 'setSyncReport("")' in t
+          assert '2800' in t  # ordinary non-query toast behavior remains unchanged
+          print('static checks passed')
+          PY
+      - run: npm ci
+      - run: npm test
+      - name: Commit tested UI change
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/TrackerApp.tsx app/globals.css
+          git commit -m 'Keep query issues visible with order details'
+          git push origin HEAD:fix-persistent-sync-report
