@@ -542,8 +542,7 @@ export default function TrackerApp() {
         </div>
         <nav aria-label="主导航">
           <a className="nav-active" href="#orders">订单跟踪</a>
-          <a href="#carriers">船公司网络</a>
-          <a href="#help">使用帮助</a>
+          <a href="#guide">查询说明</a>
         </nav>
         <div className="top-actions">
           <span className="avatar">AP</span>
@@ -699,34 +698,42 @@ export default function TrackerApp() {
 
         </section>
 
-        <section className="carrier-network" id="carriers">
-          <div className="carrier-network-heading">
-            <div><p className="eyebrow">查询网络</p><h2>船公司查询网络</h2></div>
-            <p>系统优先使用箱号、船名航次和港口信息查询；无法判断船公司时，再联网交叉识别。这里只显示当前真正可用的查询能力。</p>
+        <section
+          id="guide"
+          aria-label="船期查询使用说明"
+          style={{
+            marginTop: 20,
+            padding: "18px 22px 16px",
+            border: "1px solid var(--line)",
+            borderRadius: 12,
+            background: "var(--paper)",
+            boxShadow: "0 5px 18px rgba(30, 60, 80, 0.035)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, marginBottom: 12, flexWrap: "wrap" }}>
+            <div>
+              <p className="eyebrow">使用说明</p>
+              <h2 style={{ margin: 0, fontSize: 19 }}>船期查询使用说明</h2>
+            </div>
           </div>
-          <div className="network-capability-summary">
-            <div><strong>{automaticCarrierCount}</strong><span>个自动查询源</span><small>一键更新全部订单</small></div>
-            <div><strong>已启用</strong><span>未知船公司识别</span><small>船名、航次和航线交叉查证</small></div>
-            <div><strong>持续保存</strong><span>ETD / ETA 变化</span><small>直到最终 ATD / ATA</small></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10 }}>
+            <div style={{ display: "flex", gap: 10, padding: "11px 12px", borderRadius: 9, background: "#f7fafb" }}>
+              <span style={{ width: 26, height: 26, flex: "0 0 26px", display: "grid", placeItems: "center", borderRadius: "50%", background: "var(--teal-soft)", color: "var(--teal)", fontWeight: 800 }}>1</span>
+              <div><strong style={{ display: "block", marginBottom: 3 }}>填写订单信息</strong><span style={{ color: "var(--ink-soft)", lineHeight: 1.55 }}>填写订单号、船名、航次、起运港、目的港等信息。</span></div>
+            </div>
+            <div style={{ display: "flex", gap: 10, padding: "11px 12px", borderRadius: 9, background: "#f7fafb" }}>
+              <span style={{ width: 26, height: 26, flex: "0 0 26px", display: "grid", placeItems: "center", borderRadius: "50%", background: "var(--teal-soft)", color: "var(--teal)", fontWeight: 800 }}>2</span>
+              <div><strong style={{ display: "block", marginBottom: 3 }}>点击查询</strong><span style={{ color: "var(--ink-soft)", lineHeight: 1.55 }}>系统自动识别船公司，并查询对应船公司官网船期。</span></div>
+            </div>
+            <div style={{ display: "flex", gap: 10, padding: "11px 12px", borderRadius: 9, background: "#f7fafb" }}>
+              <span style={{ width: 26, height: 26, flex: "0 0 26px", display: "grid", placeItems: "center", borderRadius: "50%", background: "var(--teal-soft)", color: "var(--teal)", fontWeight: 800 }}>3</span>
+              <div><strong style={{ display: "block", marginBottom: 3 }}>查看结果</strong><span style={{ color: "var(--ink-soft)", lineHeight: 1.55 }}>查询成功后更新 ETD / ATD / ETA / ATA；未查询成功的订单会显示异常原因。</span></div>
+            </div>
           </div>
-          <div className="source-network-grid">
-            <div><span className="source-dot ready" /><p><strong>Evergreen ShipmentLink</strong><small>箱号运输节点</small></p><b>自动</b></div>
-            <div><span className="source-dot ready" /><p><strong>Maersk</strong><small>船名航次 + POL/POD</small></p><b>自动</b></div>
-            <div><span className="source-dot ready" /><p><strong>PANCON</strong><small>船名航次 + POL/POD</small></p><b>自动</b></div>
-            <div><span className="source-dot ready" /><p><strong>COSCO eLines</strong><small>全球官网船期</small></p><b>自动</b></div>
-            <div><span className="source-dot ready" /><p><strong>ONE</strong><small>全球官网船期</small></p><b>自动</b></div>
-            <div><span className="source-dot ready" /><p><strong>HMM</strong><small>全球官网船期</small></p><b>自动</b></div>
-            <div><span className="source-dot ready" /><p><strong>Yang Ming</strong><small>当前及相邻航次</small></p><b>自动</b></div>
-            <div><span className="source-dot pending" /><p><strong>CMA CGM</strong><small>官方接口需要 KeyId</small></p><b className="needs-auth">需授权</b></div>
-            <div><span className="source-dot pending" /><p><strong>Hapag-Lloyd</strong><small>官方接口需要 Client ID / Secret</small></p><b className="needs-auth">需授权</b></div>
-            <div><span className="source-dot pending" /><p><strong>ZIM</strong><small>官方接口需要 OAuth</small></p><b className="needs-auth">需授权</b></div>
-            <div><span className="source-dot pending" /><p><strong>MSC</strong><small>开发者接口需要订阅授权</small></p><b className="needs-auth">需授权</b></div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 24px", marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--line-soft)", color: "var(--ink-soft)", fontSize: 11, lineHeight: 1.55 }}>
+            <span><strong style={{ color: "var(--ink)" }}>查询提示：</strong>信息越完整，查询越准确。填写箱号/提单号可以提高准确性。</span>
+            <span>查询结果以船公司官网信息为主，实际港口动态可能更新更快，请结合港口信息核对。</span>
           </div>
-          <div className="network-lower-row">
-            <div className="route-coverage"><strong>常用航线覆盖</strong><div><span>韩国</span><span>阿联酋</span><span>南美</span><span>墨西哥</span><span>加拿大</span><span>委内瑞拉</span><span>法国</span></div></div>
-            <div className="network-tip" id="help"><strong>提高查询成功率</strong><p>优先填写集装箱号；没有箱号时，补充船名、航次、启运港和目的港。</p></div>
-          </div>
-          <div className="query-priority"><span>1</span><p><strong>箱号 / 船东提单 / Booking</strong><small>最快且最准确</small></p><i /><span>2</span><p><strong>船名航次 + POL/POD</strong><small>窄范围船期</small></p><i /><span>3</span><p><strong>当月船期回退</strong><small>仅在前两步无结果时</small></p></div>
         </section>
       </section>
 
