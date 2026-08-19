@@ -254,7 +254,7 @@ jobs:
           assert 'ETA/ATA 未获取' in t
           assert 'sync-report' in t and '.sync-report {' in c
           assert 'setSyncReport("")' in t
-          assert '2800' in t  # ordinary non-query toast behavior remains unchanged
+          assert '2800' in t
           print('static checks passed')
           PY
       - run: npm ci
@@ -267,3 +267,5 @@ jobs:
           git add app/TrackerApp.tsx app/globals.css
           git commit -m 'Keep query issues visible with order details'
           git push origin HEAD:fix-persistent-sync-report
+
+# trigger
