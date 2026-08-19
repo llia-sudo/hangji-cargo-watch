@@ -90,11 +90,14 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(carriers, /rank: 10/);
   assert.match(carriers, /KMTC/);
   assert.match(carriers, /Emirates Shipping Line/);
-  assert.match(dashboard, /船公司查询网络/);
+  assert.match(dashboard, /船期查询使用说明/);
   assert.doesNotMatch(dashboard, /全球前十大班轮公司/);
   assert.match(dashboard, /船公司<\/span><select/);
-  assert.match(dashboard, /未知船公司识别/);
-  assert.match(dashboard, /source-network-grid/);
+  assert.doesNotMatch(dashboard, /未知船公司识别/);
+  assert.doesNotMatch(dashboard, /source-network-grid/);
+  assert.match(dashboard, /系统自动识别船公司，并查询对应船公司官网船期/);
+  assert.match(dashboard, /信息越完整，查询越准确。填写箱号\/提单号可以提高准确性。/);
+  assert.match(dashboard, /查询结果以船公司官网信息为主，实际港口动态可能更新更快，请结合港口信息核对。/);
   assert.match(carriers, /vesselName: "CONCERTO"/);
   assert.match(carriers, /vesselName: "REN JIAN 27"/);
   assert.match(carriers, /carrierId: "sinotrans"/);
@@ -171,8 +174,8 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(carriers, /maersk\.com\/schedules\/vesselSchedules/);
   assert.match(carriers, /hapag-lloyd\.com\/solutions\/schedule/);
   assert.match(carriers, /api-credentials/);
-  assert.match(dashboard, /<strong>Maersk<\/strong>/);
-  assert.match(dashboard, /需授权/);
+  assert.doesNotMatch(dashboard, /<strong>Maersk<\/strong>/);
+  assert.doesNotMatch(dashboard, /需授权/);
   assert.match(carriers, /ecomm\.one-line\.com\/one-ecom\/schedule\/vessel-schedule/);
   assert.match(carriers, /hmm21\.com\/e-service\/general\/schedule\/ScheduleMain\.do/);
   assert.match(carriers, /oocl\.com\/eng\/ourservices\/eservices\/trackandtrace/);
