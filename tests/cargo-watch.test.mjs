@@ -1,6 +1,23 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import {
+  createLianyungangSession,
+  LianyungangSourceError,
+  parseLianyungangActualDeparture,
+  parseLianyungangPlannedDeparture,
+  queryLianyungangActualDeparture,
+  queryLianyungangPlannedDeparture,
+} from "../app/lib/ports/lianyungang.ts";
+import {
+  discoverAndDispatchCarrier,
+  hasPartialScheduleSuccess,
+  isLianyungangPort,
+  lianyungangScheduleStatus,
+  mergeLianyungangFields,
+  routeShipmentQuery,
+  settleLianyungangSources,
+} from "../app/lib/tracking-orchestration.ts";
 
 const root = new URL("../", import.meta.url);
 
@@ -106,7 +123,7 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(carriers, /ebusiness\.sinolines\.com\.cn\/Ebusiness\/EQUERY\/QuerySchedule\.aspx/);
   assert.match(carriers, /SHANGHAI INCHON INTERNATIONAL FERRY/);
   assert.match(onlineIdentification, /https:\/\/search\.brave\.com\/search/);
-  assert.match(onlineIdentification, /best\.official && best\.score >= 12/);
+  assert.match(onlineIdentification, /officialEvidence/);
   assert.match(tracking, /identifyCarrierOnline/);
   assert.match(syncApi, /identified: identified\.length/);
   assert.match(dashboard, /single-sync-button/);
@@ -239,7 +256,6 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /voyage: shipment\.voyage/);
 });
 
-
 test("desktop shipment UI uses readable route and detail typography", async () => {
   const [dashboard, css] = await Promise.all([
     readFile(new URL("app/TrackerApp.tsx", root), "utf8"),
@@ -292,4 +308,300 @@ test("carrier-specific schedule status uses estimated in transit", async () => {
     tracking,
     /async function queryCoscoGlobal[\s\S]*?const status = scheduleStatus\(etd, atd, eta, ata\);[\s\S]*?source: "COSCO eLines 全球官网船期"/
   );
+});
+
+test("Lianyungang adapter submits the real Tapestry forms and matches exact vessel plus voyage", async () => {
+  const [plannedHtml, actualHtml] = await Promise.all([
+    readFile(new URL("fixtures/lygedi-planned.html", import.meta.url), "utf8"),
+    readFile(new URL("fixtures/lygedi-actual.html", import.meta.url), "utf8"),
+  ]);
+  assert.equal(
+    parseLianyungangPlannedDeparture(plannedHtml, "TEST VESSEL", "002-W"),
+    "2026-08-03 10:30"
+  );
+  assert.equal(
+    parseLianyungangActualDeparture(actualHtml, " test vessel ", "002W"),
+    "2026-08-05 14:30"
+  );
+  assert.throws(
+    () => parseLianyungangPlannedDeparture(plannedHtml, "TEST", "002W"),
+    (error) =>
+      error instanceof LianyungangSourceError &&
+      error.code === "VESSEL_NOT_FOUND"
+  );
+  assert.throws(
+    () =>
+      parseLianyungangActualDeparture(
+        actualHtml,
+        "TEST VESSEL",
+        "NO-SUCH-VOYAGE"
+      ),
+    (error) =>
+      error instanceof LianyungangSourceError &&
+      error.code === "VOYAGE_NOT_FOUND"
+  );
+
+  const plannedCalls = [];
+  const plannedFetch = async (url, init = {}) => {
+    plannedCalls.push({ url, init });
+    return new Response(plannedHtml, { status: 200 });
+  };
+  const plannedSession = createLianyungangSession();
+  const planned = await queryLianyungangPlannedDeparture(
+    { vesselName: "TEST VESSEL", voyage: "002W" },
+    plannedSession,
+    plannedFetch
+  );
+  assert.equal(planned.departure, "2026-08-03 10:30");
+  assert.equal(plannedCalls.length, 2);
+  assert.equal(plannedCalls[0].init.method, undefined);
+  assert.equal(plannedCalls[1].init.method, "POST");
+  const plannedBody = new URLSearchParams(String(plannedCalls[1].init.body));
+  assert.equal(plannedBody.get("$TextField$1"), "TEST VESSEL");
+  assert.equal(plannedBody.get("_linkSubmit"), "$LinkSubmit$1");
+  assert.deepEqual(plannedBody.getAll("$ListEdit"), [
+    "first-state",
+    "second-state",
+  ]);
+  await queryLianyungangPlannedDeparture(
+    { vesselName: "TEST VESSEL", voyage: "002W" },
+    plannedSession,
+    plannedFetch
+  );
+  assert.equal(plannedCalls.length, 2, "same batch query should be cached");
+
+  const actualCalls = [];
+  const actual = await queryLianyungangActualDeparture(
+    { vesselName: "TEST VESSEL", voyage: "002W" },
+    createLianyungangSession(),
+    async (url, init = {}) => {
+      actualCalls.push({ url, init });
+      return new Response(actualHtml, { status: 200 });
+    }
+  );
+  assert.equal(actual.departure, "2026-08-05 14:30");
+  const actualBody = new URLSearchParams(String(actualCalls[1].init.body));
+  assert.equal(actualBody.get("textField2"), "TEST VESSEL");
+  assert.equal(actualBody.get("$Submit"), "查询");
+});
+
+test("CASE 1: Lianyungang uses port ETD/ATD and carrier ETA/ATA", () => {
+  const fields = mergeLianyungangFields({
+    plannedEtd: "2026-08-03",
+    actualAtd: "2026-08-05",
+    carrier: {
+      etd: "2099-01-01",
+      atd: "2099-01-02",
+      eta: "2026-08-10",
+      ata: "2026-08-11",
+    },
+  });
+  assert.deepEqual(fields, {
+    etd: "2026-08-03",
+    atd: "2026-08-05",
+    eta: "2026-08-10",
+    ata: "2026-08-11",
+  });
+});
+
+test("CASE 2: missing Lianyungang ATD and carrier ATA remains a partial success", () => {
+  const fields = mergeLianyungangFields({
+    plannedEtd: "2026-08-03",
+    carrier: { eta: "2026-08-10" },
+  });
+  assert.deepEqual(fields, {
+    etd: "2026-08-03",
+    atd: "",
+    eta: "2026-08-10",
+    ata: "",
+  });
+  assert.equal(
+    hasPartialScheduleSuccess({
+      portSucceeded: true,
+      carrierSucceeded: true,
+    }),
+    true
+  );
+  assert.equal(
+    lianyungangScheduleStatus(fields, "2026-08-04 12:00"),
+    "运输中"
+  );
+  assert.equal(
+    lianyungangScheduleStatus(fields, "2026-08-02 12:00"),
+    "待开船"
+  );
+  assert.equal(
+    lianyungangScheduleStatus(
+      { ...fields, etd: "2026-08-01", eta: "" },
+      "2026-08-04 12:00"
+    ),
+    "运输中"
+  );
+});
+
+test("CASE 3: carrier ETD/ATD can never overwrite Lianyungang fields", () => {
+  const fields = mergeLianyungangFields({
+    plannedEtd: "2026-08-03",
+    actualAtd: "2026-08-05",
+    carrier: {
+      etd: "2026-08-30",
+      atd: "2026-08-31",
+      eta: "2026-09-10",
+      ata: "2026-09-11",
+    },
+  });
+  assert.equal(fields.etd, "2026-08-03");
+  assert.equal(fields.atd, "2026-08-05");
+});
+
+test("CASE 4: carrier failure does not erase successful Lianyungang departure data", () => {
+  const fields = mergeLianyungangFields({
+    plannedEtd: "2026-08-03",
+    actualAtd: "2026-08-05",
+  });
+  assert.deepEqual(fields, {
+    etd: "2026-08-03",
+    atd: "2026-08-05",
+    eta: "",
+    ata: "",
+  });
+  assert.equal(
+    hasPartialScheduleSuccess({
+      portSucceeded: true,
+      carrierSucceeded: false,
+    }),
+    true
+  );
+});
+
+test("CASE 5: non-Lianyungang shipments never call the port adapter", async () => {
+  let portCalls = 0;
+  let carrierCalls = 0;
+  const result = await routeShipmentQuery(" Shanghai ", {
+    lianyungang: async () => {
+      portCalls += 1;
+      return "port";
+    },
+    carrier: async () => {
+      carrierCalls += 1;
+      return "carrier";
+    },
+  });
+  assert.equal(result, "carrier");
+  assert.equal(portCalls, 0);
+  assert.equal(carrierCalls, 1);
+  assert.equal(isLianyungangPort(" lianyungang "), true);
+  assert.equal(isLianyungangPort("LIANYUNGANG NEW PORT"), false);
+});
+
+test("CASE 6: Layer 1 success skips Layer 2 and Layer 3", async () => {
+  const calls = [];
+  const result = await discoverAndDispatchCarrier({
+    layers: [
+      async () => {
+        calls.push("layer1");
+        return "COSCO";
+      },
+      async () => {
+        calls.push("layer2");
+        return "ONE";
+      },
+      async () => {
+        calls.push("layer3");
+        return "HMM";
+      },
+    ],
+    dispatch: async (carrier) => ({ carrier, schedule: "verified" }),
+  });
+  assert.deepEqual(calls, ["layer1"]);
+  assert.equal(result.layer, 1);
+  assert.equal(result.result.schedule, "verified");
+});
+
+test("CASE 7: Layer 2 success skips Layer 3", async () => {
+  const calls = [];
+  const result = await discoverAndDispatchCarrier({
+    layers: [
+      async () => {
+        calls.push("layer1");
+        return undefined;
+      },
+      async () => {
+        calls.push("layer2");
+        return "SINOTRANS";
+      },
+      async () => {
+        calls.push("layer3");
+        return "COSCO";
+      },
+    ],
+    dispatch: async (carrier) => ({ carrier, schedule: "verified" }),
+  });
+  assert.deepEqual(calls, ["layer1", "layer2"]);
+  assert.equal(result.layer, 2);
+});
+
+test("CASE 8: Layer 3 discovery dispatches an existing automatic adapter", async () => {
+  const calls = [];
+  const result = await discoverAndDispatchCarrier({
+    layers: [
+      async () => undefined,
+      async () => undefined,
+      async () => "COSCO",
+    ],
+    dispatch: async (carrier, layer) => {
+      calls.push(`adapter:${carrier}:${layer}`);
+      return { kind: "schedule", eta: "2026-08-10" };
+    },
+  });
+  assert.deepEqual(calls, ["adapter:COSCO:3"]);
+  assert.deepEqual(result.result, {
+    kind: "schedule",
+    eta: "2026-08-10",
+  });
+});
+
+test("CASE 9: identified carrier without an adapter reports schedule unavailable", async () => {
+  const result = await discoverAndDispatchCarrier({
+    layers: [
+      async () => undefined,
+      async () => undefined,
+      async () => "CARRIER_WITH_CAPTCHA",
+    ],
+    dispatch: async (carrier) => ({
+      kind: "identified",
+      carrier,
+      error: "SCHEDULE_NOT_AVAILABLE",
+    }),
+  });
+  assert.deepEqual(result.result, {
+    kind: "identified",
+    carrier: "CARRIER_WITH_CAPTCHA",
+    error: "SCHEDULE_NOT_AVAILABLE",
+  });
+});
+
+test("CASE 10: one timed-out source does not block other parallel results", async () => {
+  const started = [];
+  const pending = settleLianyungangSources({
+    planned: async () => {
+      started.push("planned");
+      return "2026-08-03";
+    },
+    actual: async () => {
+      started.push("actual");
+      const error = new Error("timeout");
+      error.name = "AbortError";
+      throw error;
+    },
+    carrier: async () => {
+      started.push("carrier");
+      return { eta: "2026-08-10" };
+    },
+  });
+  assert.deepEqual(started, ["planned", "actual", "carrier"]);
+  const results = await pending;
+  assert.equal(results.planned.status, "fulfilled");
+  assert.equal(results.actual.status, "rejected");
+  assert.equal(results.carrier.status, "fulfilled");
 });

@@ -188,15 +188,32 @@ function scoreItem(
   const pol = normalize(input.portOfLoading);
   const pod = normalize(input.portOfDischarge);
   const document = compact(input.billOfLading || input.bookingNo);
-  const documentPrefix = document.slice(0, 4);
-  const vesselMatched = Boolean(vessel && text.includes(vessel));
-  if (!vesselMatched) return { score: 0, official: false, alias: false };
+  const vesselMatched = Boolean(vessel && containsPhrase(text, vessel));
+  if (!vesselMatched) {
+    return {
+      score: 0,
+      official: false,
+      alias: false,
+      voyageMatched: false,
+      polMatched: false,
+      podMatched: false,
+      documentMatched: false,
+    };
+  }
 
   let host = "";
   try {
     host = new URL(item.link).hostname.replace(/^www\./, "");
   } catch {
-    return { score: 0, official: false, alias: false };
+    return {
+      score: 0,
+      official: false,
+      alias: false,
+      voyageMatched: false,
+      polMatched: false,
+      podMatched: false,
+      documentMatched: false,
+    };
   }
 
   const official = officialDomains(carrier).some(
@@ -215,17 +232,34 @@ function scoreItem(
     containsPhrase(text, alias)
   );
   const alias = strongAliasMatched || shortAliasMatched;
+  const voyageMatched = Boolean(voyage && compactText.includes(voyage));
+  const polMatched = Boolean(pol && text.includes(pol));
+  const podMatched = Boolean(pod && text.includes(pod));
+  const documentMatched = Boolean(
+    document &&
+      carrier.documentPrefixes.some((prefix) =>
+        document.startsWith(compact(prefix))
+      )
+  );
 
   let score = 5;
-  if (voyage && compactText.includes(voyage)) score += 3;
-  if (pol && text.includes(pol)) score += 1;
-  if (pod && text.includes(pod)) score += 1;
-  if (documentPrefix && compactText.includes(documentPrefix)) score += 2;
+  if (voyageMatched) score += 3;
+  if (polMatched) score += 1;
+  if (podMatched) score += 1;
+  if (documentMatched) score += 3;
   if (official) score += 7;
   if (strongAliasMatched) score += 4;
   else if (shortAliasMatched) score += 2;
 
-  return { score, official, alias };
+  return {
+    score,
+    official,
+    alias,
+    voyageMatched,
+    polMatched,
+    podMatched,
+    documentMatched,
+  };
 }
 
 function buildQueries(input: CarrierDetectionInput) {
@@ -362,12 +396,35 @@ async function identifyWithinBudget(
   );
   candidates.sort((left, right) => right.score - left.score);
   const best = candidates[0];
-  if (best && best.score >= 9 && (best.official || best.alias)) {
+  const officialEvidence = Boolean(
+    best?.official &&
+      (best.alias ||
+        best.voyageMatched ||
+        best.polMatched ||
+        best.podMatched ||
+        best.documentMatched)
+  );
+  const corroboratedThirdPartyEvidence = Boolean(
+    best?.alias &&
+      best.voyageMatched &&
+      (best.polMatched || best.podMatched || best.documentMatched)
+  );
+  if (
+    best &&
+    best.score >= 12 &&
+    (officialEvidence || corroboratedThirdPartyEvidence)
+  ) {
     return {
       carrier: best.carrier,
       evidenceTitle: best.item.title,
       evidenceUrl: best.item.link,
-      confidence: best.official && best.score >= 12 ? "high" : "medium",
+      confidence:
+        best.official &&
+        (best.voyageMatched ||
+          best.documentMatched ||
+          (best.polMatched && best.podMatched))
+          ? "high"
+          : "medium",
     };
   }
 

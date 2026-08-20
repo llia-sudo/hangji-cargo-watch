@@ -10,6 +10,21 @@ import {
   identifyCarrierOnline,
   OnlineCarrierIdentification,
 } from "@/app/lib/online-carrier-identification";
+import {
+  createLianyungangSession,
+  LianyungangSession,
+  LianyungangSourceError,
+  queryLianyungangActualDeparture,
+  queryLianyungangPlannedDeparture,
+} from "@/app/lib/ports/lianyungang";
+import {
+  discoverAndDispatchCarrier,
+  hasPartialScheduleSuccess,
+  lianyungangScheduleStatus,
+  mergeLianyungangFields,
+  routeShipmentQuery,
+  settleLianyungangSources,
+} from "@/app/lib/tracking-orchestration";
 
 export type TrackingShipment = {
   id: number;
@@ -800,6 +815,7 @@ type TrackingSession = {
   yangMingVessels?: Promise<YangMingVessel[]>;
   maerskVessels?: Promise<MaerskVessel[]>;
   carrierQueries: Map<string, Promise<TrackingUpdate>>;
+  lianyungang: LianyungangSession;
 };
 
 export function createTrackingSession(): TrackingSession {
@@ -810,6 +826,7 @@ export function createTrackingSession(): TrackingSession {
     coscoVesselCodes: new Map(),
     oneVesselCodes: new Map(),
     carrierQueries: new Map(),
+    lianyungang: createLianyungangSession(),
   };
 }
 
@@ -2127,9 +2144,13 @@ function cachedCarrierQuery(
 
 type TrackingFailureCategory =
   | "TIMEOUT"
+  | "PORT_SOURCE_UNAVAILABLE"
   | "VESSEL_NOT_FOUND"
   | "VOYAGE_NOT_FOUND"
   | "PORT_MISMATCH"
+  | "CARRIER_NOT_IDENTIFIED"
+  | "SCHEDULE_NOT_AVAILABLE"
+  | "NETWORK_ERROR"
   | "REMOTE_ERROR"
   | "PARSE_ERROR"
   | "UNKNOWN";
@@ -2138,10 +2159,19 @@ function trackingErrorDetail(error: unknown): {
   category: TrackingFailureCategory;
   reason: string;
 } {
+  if (error instanceof LianyungangSourceError) {
+    return { category: error.code, reason: error.message };
+  }
   if (error instanceof Error && error.name === "AbortError") {
     return { category: "TIMEOUT", reason: "船公司官网响应超时" };
   }
   const reason = error instanceof Error ? error.message : "查询失败";
+  if (/尚未开通|API 授权|自动回填/.test(reason)) {
+    return { category: "SCHEDULE_NOT_AVAILABLE", reason };
+  }
+  if (/网络|fetch failed|ECONN|ENOTFOUND/i.test(reason)) {
+    return { category: "NETWORK_ERROR", reason };
+  }
   if (/没有找到船名|船名库没有找到|无法识别船/i.test(reason)) {
     return { category: "VESSEL_NOT_FOUND", reason };
   }
@@ -2161,7 +2191,8 @@ function trackingErrorDetail(error: unknown): {
 }
 
 function trackingErrorReason(error: unknown) {
-  return trackingErrorDetail(error).reason;
+  const detail = trackingErrorDetail(error);
+  return `${detail.category}: ${detail.reason}`;
 }
 
 async function officialSourceRecognizesVessel(
@@ -2235,87 +2266,19 @@ async function discoverUnknownCarrierByOfficialSchedule(
   return Promise.race([winner, timeout]);
 }
 
-export async function syncShipment(
+type ResolvedCarrier = {
+  carrier: Carrier;
+  onlineIdentification?: OnlineCarrierIdentification;
+  immediateResult?: TrackingResult;
+};
+
+async function queryResolvedCarrier(
   shipment: TrackingShipment,
-  session = createTrackingSession()
+  session: TrackingSession,
+  carrier: Carrier,
+  onlineIdentification?: OnlineCarrierIdentification
 ): Promise<TrackingResult> {
-  let carrier = detectCarrier(shipment);
-  let onlineIdentification: OnlineCarrierIdentification | undefined;
-
   try {
-    const learnedQuerySource = shipment.preferredQuerySource
-      ? carriers.find((item) => item.id === shipment.preferredQuerySource)
-      : undefined;
-    if (
-      !carrier &&
-      learnedQuerySource &&
-      supportsAutomaticCarrierQuery(learnedQuerySource)
-    ) {
-      try {
-        const learnedUpdate = await cachedCarrierQuery(
-          learnedQuerySource,
-          shipment,
-          session,
-          {
-            allowVoyageAlias: false,
-            sourceCarrier: learnedQuerySource,
-          }
-        );
-        return {
-          ok: true,
-          orderNo: shipment.orderNo,
-          message: `沿用已验证船名航线记录，${learnedQuerySource.shortName} 查询成功`,
-          update: {
-            ...learnedUpdate,
-            carrierId: learnedQuerySource.id,
-            preferredQuerySource: learnedQuerySource.id,
-            notes: `优先使用同船名同航线历史成功来源 ${learnedQuerySource.shortName}；本次仍严格匹配船名、航次及起运港，目的港未命中时只保留开航信息并明确提示。${learnedUpdate.notes}`,
-          },
-        };
-      } catch {
-        // Learned source is stale or unavailable. Continue to fresh discovery.
-      }
-    }
-
-    if (!carrier) {
-      // Layer 2: known official sources get a bounded first chance. This keeps
-      // ordinary unknown-vessel checks deterministic and evidence-driven.
-      const officialMatch = await discoverUnknownCarrierByOfficialSchedule(
-        shipment,
-        session
-      );
-      if (officialMatch) {
-        carrier = officialMatch.carrier;
-        return {
-          ok: true,
-          orderNo: shipment.orderNo,
-          message: `官方船期交叉识别为 ${carrier.shortName}，查询成功`,
-          update: {
-            ...officialMatch.update,
-            carrierId: carrier.id,
-            preferredQuerySource: carrier.id,
-            notes: `第二层官方交叉识别：${carrier.shortName} 官网已验证船名、航次及起运港；目的港匹配状态以本次查询备注为准。${officialMatch.update.notes}`,
-          },
-        };
-      }
-
-      // Layer 3: only after local rules/history and known official sources fail,
-      // search the wider web for either a known carrier or a credible new
-      // carrier/source candidate. The online module has its own strict budget.
-      onlineIdentification = await findCarrierOnline(shipment, session).catch(
-        () => undefined
-      );
-      carrier = onlineIdentification?.carrier;
-    }
-    if (!carrier) {
-      return {
-        ok: false,
-        identified: false,
-        orderNo: shipment.orderNo,
-        message: "三层识别均未找到可信的船公司或查询来源，请补充箱号、提单号或航线",
-      };
-    }
-
     const persistedQuerySource =
       (shipment.preferredQuerySource
         ? carriers.find((item) => item.id === shipment.preferredQuerySource)
@@ -2357,7 +2320,6 @@ export async function syncShipment(
         // Remembered fast source no longer works; continue with primary + normal fallbacks.
       }
     }
-
     const fallback = sharedCarrierFallbackSources(carrier.id);
     const automaticFallbacks = fallback.carriers
       .filter(supportsAutomaticCarrierQuery)
@@ -2566,4 +2528,279 @@ export async function syncShipment(
         : {}),
     };
   }
+}
+
+async function syncCarrierShipment(
+  shipment: TrackingShipment,
+  session: TrackingSession
+): Promise<TrackingResult> {
+  const discovered = await discoverAndDispatchCarrier<
+    ResolvedCarrier,
+    TrackingResult
+  >({
+    layers: [
+      // Layer 1: local carrier rules or a previously verified query source.
+      async () => {
+        const carrier = detectCarrier(shipment);
+        if (carrier) return { carrier };
+
+        const learnedQuerySource = shipment.preferredQuerySource
+          ? carriers.find((item) => item.id === shipment.preferredQuerySource)
+          : undefined;
+        if (
+          !learnedQuerySource ||
+          !supportsAutomaticCarrierQuery(learnedQuerySource)
+        ) {
+          return undefined;
+        }
+        try {
+          const update = await cachedCarrierQuery(
+            learnedQuerySource,
+            shipment,
+            session,
+            {
+              allowVoyageAlias: false,
+              sourceCarrier: learnedQuerySource,
+            }
+          );
+          return {
+            carrier: learnedQuerySource,
+            immediateResult: {
+              ok: true,
+              orderNo: shipment.orderNo,
+              message: `沿用已验证船名航线记录，${learnedQuerySource.shortName} 查询成功`,
+              update: {
+                ...update,
+                carrierId: learnedQuerySource.id,
+                preferredQuerySource: learnedQuerySource.id,
+                notes: `第一层沿用同船名同航线历史成功来源 ${learnedQuerySource.shortName}；本次仍严格匹配船名、航次及起运港，目的港未命中时只保留开航信息并明确提示。${update.notes}`,
+              },
+            },
+          };
+        } catch {
+          return undefined;
+        }
+      },
+      // Layer 2: known official sources use a bounded cross-check and must
+      // return a verified schedule, not only a carrier name.
+      async () => {
+        const officialMatch = await discoverUnknownCarrierByOfficialSchedule(
+          shipment,
+          session
+        );
+        if (!officialMatch) return undefined;
+        return {
+          carrier: officialMatch.carrier,
+          immediateResult: {
+            ok: true,
+            orderNo: shipment.orderNo,
+            message: `官方船期交叉识别为 ${officialMatch.carrier.shortName}，查询成功`,
+            update: {
+              ...officialMatch.update,
+              carrierId: officialMatch.carrier.id,
+              preferredQuerySource: officialMatch.carrier.id,
+              notes: `第二层官方交叉识别：${officialMatch.carrier.shortName} 官网已验证船名、航次及起运港；目的港匹配状态以本次查询备注为准。${officialMatch.update.notes}`,
+            },
+          },
+        };
+      },
+      // Layer 3: only after local rules/history and known official sources
+      // fail, run bounded online discovery and dispatch a known carrier into
+      // the same automatic schedule adapters below.
+      async () => {
+        const identification = await findCarrierOnline(shipment, session).catch(
+          () => undefined
+        );
+        return identification
+          ? {
+              carrier: identification.carrier,
+              onlineIdentification: identification,
+            }
+          : undefined;
+      },
+    ],
+    dispatch: (resolved) =>
+      resolved.immediateResult
+        ? Promise.resolve(resolved.immediateResult)
+        : queryResolvedCarrier(
+            shipment,
+            session,
+            resolved.carrier,
+            resolved.onlineIdentification
+          ),
+  });
+
+  return discovered?.result ?? {
+    ok: false,
+    identified: false,
+    orderNo: shipment.orderNo,
+    message:
+      "CARRIER_NOT_IDENTIFIED: 本地规则、已知官方来源和联网发现均未找到可信船公司，请补充箱号、提单号或航线",
+  };
+}
+
+function lianyungangSourceNote(
+  field: "ETD" | "ATD",
+  result: PromiseSettledResult<{
+    departure: string;
+    source: string;
+  }>
+) {
+  return result.status === "fulfilled"
+    ? `${field} source: ${result.value.source}（${result.value.departure}）`
+    : `${field}: 未获取（${trackingErrorReason(result.reason)}）`;
+}
+
+async function syncLianyungangShipment(
+  shipment: TrackingShipment,
+  session: TrackingSession
+): Promise<TrackingResult> {
+  const results = await settleLianyungangSources({
+    planned: () =>
+      queryLianyungangPlannedDeparture(shipment, session.lianyungang),
+    actual: () =>
+      queryLianyungangActualDeparture(shipment, session.lianyungang),
+    carrier: () => syncCarrierShipment(shipment, session),
+  });
+  const carrierResult =
+    results.carrier.status === "fulfilled" ? results.carrier.value : undefined;
+  const carrierUpdate = carrierResult?.ok ? carrierResult.update : undefined;
+  const fields = mergeLianyungangFields({
+    plannedEtd:
+      results.planned.status === "fulfilled"
+        ? results.planned.value.departure
+        : "",
+    actualAtd:
+      results.actual.status === "fulfilled"
+        ? results.actual.value.departure
+        : "",
+    carrier: carrierUpdate,
+  });
+  const portSucceeded =
+    results.planned.status === "fulfilled" ||
+    results.actual.status === "fulfilled";
+
+  if (
+    hasPartialScheduleSuccess({
+      portSucceeded,
+      carrierSucceeded: Boolean(carrierUpdate?.eta || carrierUpdate?.ata),
+    })
+  ) {
+    const baselineEtd = shipment.baselineEtd || fields.etd;
+    const baselineEta =
+      shipment.baselineEta || carrierUpdate?.baselineEta || fields.eta;
+    const delayDays = Math.max(
+      fields.atd ? dayDifference(fields.atd, baselineEtd) : 0,
+      fields.ata || fields.eta
+        ? dayDifference(fields.ata || fields.eta, baselineEta)
+        : 0
+    );
+    const carrierReason = carrierResult
+      ? carrierResult.ok
+        ? carrierResult.update.notes
+        : carrierResult.message
+      : results.carrier.status === "rejected"
+        ? trackingErrorReason(results.carrier.reason)
+        : "SCHEDULE_NOT_AVAILABLE: 船公司船期未获取";
+    const etaNote = fields.eta
+      ? `ETA source: ${carrierUpdate?.source}（${fields.eta}）`
+      : `ETA: 未获取（${carrierReason}）`;
+    const ataNote = fields.ata
+      ? `ATA source: ${carrierUpdate?.source}（${fields.ata}）`
+      : "ATA: 未获取";
+    const portSources = [
+      results.planned.status === "fulfilled"
+        ? results.planned.value.source
+        : "",
+      results.actual.status === "fulfilled" ? results.actual.value.source : "",
+    ].filter(Boolean);
+    const source = [...new Set([...portSources, carrierUpdate?.source ?? ""])]
+      .filter(Boolean)
+      .join(" + ");
+    const update: TrackingUpdate = {
+      vesselName: shipment.vesselName,
+      voyage: shipment.voyage,
+      portOfLoading: shipment.portOfLoading,
+      portOfDischarge: shipment.portOfDischarge,
+      status: lianyungangScheduleStatus(fields, chinaTimestamp()),
+      baselineEtd,
+      ...fields,
+      baselineEta,
+      delayDays,
+      source: source || "连云港电子口岸",
+      sourceUrl:
+        results.planned.status === "fulfilled"
+          ? results.planned.value.sourceUrl
+          : results.actual.status === "fulfilled"
+            ? results.actual.value.sourceUrl
+            : carrierUpdate?.sourceUrl ?? "",
+      lastCheckedAt: chinaTimestamp(),
+      notes: [
+        lianyungangSourceNote("ETD", results.planned),
+        lianyungangSourceNote("ATD", results.actual),
+        etaNote,
+        ataNote,
+        carrierUpdate?.notes ?? "",
+      ]
+        .filter(Boolean)
+        .join("；"),
+    };
+    return {
+      ok: true,
+      orderNo: shipment.orderNo,
+      message: portSucceeded
+        ? "连云港电子口岸与船公司字段级合并完成"
+        : `${carrierUpdate?.source} 查询成功；连云港 ETD/ATD 未获取`,
+      update,
+    };
+  }
+
+  const portNotes = [
+    lianyungangSourceNote("ETD", results.planned),
+    lianyungangSourceNote("ATD", results.actual),
+  ].join("；");
+  if (carrierResult && !carrierResult.ok && carrierResult.identified) {
+    return {
+      ...carrierResult,
+      identification: {
+        ...carrierResult.identification,
+        notes: `${portNotes}；${carrierResult.identification.notes}`,
+      },
+    };
+  }
+  if (carrierResult && !carrierResult.ok && carrierResult.check) {
+    return {
+      ...carrierResult,
+      check: {
+        ...carrierResult.check,
+        notes: `${portNotes}；${carrierResult.check.notes}`,
+      },
+    };
+  }
+  const carrierReason = carrierResult?.message ??
+    (results.carrier.status === "rejected"
+      ? trackingErrorReason(results.carrier.reason)
+      : "SCHEDULE_NOT_AVAILABLE: 船公司船期未获取");
+  return {
+    ok: false,
+    identified: false,
+    orderNo: shipment.orderNo,
+    message: `${portNotes}；${carrierReason}`,
+    check: {
+      source: "连云港电子口岸",
+      sourceUrl: "https://www.lygedi.com/SailingDate.html",
+      lastCheckedAt: chinaTimestamp(),
+      notes: `${portNotes}；${carrierReason}`,
+    },
+  };
+}
+
+export async function syncShipment(
+  shipment: TrackingShipment,
+  session = createTrackingSession()
+): Promise<TrackingResult> {
+  return routeShipmentQuery(shipment.portOfLoading, {
+    lianyungang: () => syncLianyungangShipment(shipment, session),
+    carrier: () => syncCarrierShipment(shipment, session),
+  });
 }
