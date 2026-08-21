@@ -1,0 +1,52 @@
+name: LYG Ferry direct query probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/lyg-direct-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Query LYG Ferry monthly schedule
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, subprocess
+          endpoint='https://cargo.lygferry.com/biz/scheduleViewList.do'
+          referer='https://cargo.lygferry.com/biz/scheduleMonthView.do'
+          cases=[]
+          for ym in ['202608','202609']:
+            for direction in ['E','I']:
+              for line in ['', 'LYFR']:
+                cases.append((f'{ym}-{direction}-line={line or "blank"}',{
+                  'LINE_CD':line,'POL':'','POD':'','BASE_YYYMM':ym,
+                  'IO_KND_CD':direction,'rowType':'C'
+                }))
+          for label,master in cases:
+              payload={'url':'/biz/scheduleViewList.do','service':'scheduleViewList','serviceParam':json.dumps({'dataMaster':master},ensure_ascii=False,separators=(',',':')),'thisObj':'','targetGridObj':''}
+              data=json.dumps(payload,ensure_ascii=False,separators=(',',':'))
+              cp=subprocess.run(['curl','-L','--max-time','25','-sS','-w','\nHTTP_STATUS:%{http_code}\n','-H','Accept: application/json, text/javascript, */*; q=0.01','-H','Content-Type: application/json; charset=UTF-8','-H',f'Referer: {referer}','-H','User-Agent: Mozilla/5.0 CargoWatch/1.0','--data-binary','@-',endpoint],input=data,text=True,capture_output=True)
+              body=cp.stdout.split('\nHTTP_STATUS:',1)[0]
+              print('\n===',label,'===')
+              try:
+                  parsed=json.loads(body)
+                  rows=parsed.get('dataGrid',[]) if isinstance(parsed,dict) else []
+                  print('ROWS',len(rows))
+                  for i,row in enumerate(rows):
+                      text=' '.join(str(v) for v in row.values()).upper() if isinstance(row,dict) else str(row).upper()
+                      if any(k in text for k in ['TEN JUPITER','26360E','26360W','JUPITER']):
+                          print('MATCH',i,json.dumps(row,ensure_ascii=False))
+                  if rows and not any('TEN JUPITER' in ' '.join(str(v) for v in r.values()).upper() for r in rows if isinstance(r,dict)):
+                      print('SAMPLE',json.dumps(rows[:3],ensure_ascii=False)[:6000])
+              except Exception as e:
+                  print('PARSE_ERROR',repr(e),'BODY',body[:3000])
+          PY
