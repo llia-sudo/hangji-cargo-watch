@@ -1,0 +1,119 @@
+TITLE MPLS-연운항 화물시스템
+=== CONDITION FIELDS ===
+{"tag": "button", "id": "", "name": "", "type": "submit", "value": "", "dg": null, "class": "icon sviewLayer on", "text": " "}
+{"tag": "input", "id": "", "name": "LINE_CD", "type": "text", "value": "", "dg": "", "class": "dataGrid_fild pop_LINE_CD_multi_select on fullCode", "text": ""}
+{"tag": "input", "id": "", "name": "ACTL_DT_FROM", "type": "text", "value": "2026-08-18", "dg": null, "class": "dataGrid_fild _SW_calender_val", "text": ""}
+{"tag": "button", "id": "", "name": "", "type": "submit", "value": "", "dg": null, "class": "_SW_calender_btn on", "text": " "}
+{"tag": "input", "id": "", "name": "ACTL_DT_TO", "type": "text", "value": "2026-09-01", "dg": null, "class": "dataGrid_fild _SW_calender_val", "text": ""}
+{"tag": "button", "id": "", "name": "", "type": "submit", "value": "", "dg": null, "class": "_SW_calender_btn on", "text": " "}
+{"tag": "button", "id": "", "name": "CAL_NOW", "type": "submit", "value": "", "dg": null, "class": "com06 textType09 mplsDate now plus", "text": "당일"}
+{"tag": "button", "id": "", "name": "CAL_WEEK", "type": "submit", "value": "", "dg": null, "class": "com06 textType09 mplsDate week plus", "text": "1주"}
+{"tag": "button", "id": "", "name": "CAL_MONTH", "type": "submit", "value": "", "dg": null, "class": "com06 textType09 mplsDate month plus", "text": "1개월"}
+{"tag": "button", "id": "", "name": "CAL_3MONTH", "type": "submit", "value": "", "dg": null, "class": "com06 textType09 mplsDate 3month plus", "text": "3개월"}
+{"tag": "input", "id": "", "name": "VSL_NM", "type": "text", "value": "", "dg": null, "class": "dataGrid_fild", "text": ""}
+{"tag": "input", "id": "", "name": "VOYAGE_NO", "type": "text", "value": "", "dg": null, "class": "dataGrid_fild", "text": ""}
+{"tag": "button", "id": "", "name": "", "type": "submit", "value": "", "dg": null, "class": "icon sviewLayer on", "text": " "}
+{"tag": "input", "id": "", "name": "IO_KND_CD", "type": "text", "value": "수출", "dg": "E", "class": "dataGrid_fild on", "text": ""}
+{"tag": "button", "id": "", "name": "", "type": "submit", "value": "", "dg": null, "class": "icon sviewLayer on", "text": " "}
+{"tag": "input", "id": "", "name": "POL", "type": "text", "value": "", "dg": "", "class": "dataGrid_fild on", "text": ""}
+{"tag": "button", "id": "", "name": "", "type": "submit", "value": "", "dg": null, "class": "icon sviewLayer on", "text": " "}
+{"tag": "input", "id": "", "name": "POD", "type": "text", "value": "", "dg": null, "class": "dataGrid_fild on", "text": ""}
+=== CONDITION HTML ===
+<div id="condi_scheduleView" class="condi">
+						<!--  -->
+						<div class="row">
+							<div class="col_h" style="width: 10%">
+								<span class="label" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;선사&quot;, &quot;ENG&quot; : &quot;Email&quot;}}">선사</span>
+							</div>
+							<div class="col_f" style="width: 30%;position: relative;">
+							    <button class="icon sviewLayer on" title="POPUP">&nbsp;</button>
+								<input type="text" class="dataGrid_fild pop_LINE_CD_multi_select on fullCode" name="LINE_CD" readonly="readonly" title="선사" placeholder="선사" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;선사&quot;, &quot;ENG&quot; : &quot;Line&quot;}}" data-dg_valuationcheck="{&quot;required&quot; : &quot;N&quot;, &quot;dataType&quot; : &quot;S&quot; }" data-dg_value="">
+							</div>
+							<!--  -->
+							<!--  -->
+		                    <div class="col_h" style="width: 10%">
+								<span class="label" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;기간&quot;, &quot;ENG&quot; : &quot;기간&quot;}}">기간</span>
+							</div>
+							<div class="col_f term" style="width: 10%;position: relative;">
+								<input class="dataGrid_fild _SW_calender_val" type="text" name="ACTL_DT_FROM" title="FROM" placeholder="FROM" maxlength="10" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;FROM&quot;, &quot;ENG&quot; : &quot;FROM&quot;}}" data-dg_valuationcheck="{&quot;dataType&quot; : &quot;date&quot;, &quot;format&quot; : &quot;####-##-##&quot;, &quot;required&quot; : &quot;N&quot;}"><button class="_SW_calender_btn on" "="" title="CALENDER">&nbsp;</button>
+							</div>
+							<div class="col_f term" style="width: 10%;position: relative;">
+							     <input class="dataGrid_fild _SW_calender_val" type="text" name="ACTL_DT_TO" title="TO" placeholder="TO" maxlength="10" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;TO&quot;, &quot;ENG&quot; : &quot;TO&quot;}}" data-dg_valuationcheck="{&quot;dataType&quot; : &quot;date&quot;, &quot;format&quot; : &quot;####-##-##&quot;, &quot;required&quot; : &quot;N&quot;}"><button class="_SW_calender_btn on" "="" title="CALENDER">&nbsp;</button>
+							</div>
+							<div class="col_f termBtn" style="width: 30%;">
+								<button class="com06 textType09 mplsDate now plus" name="CAL_NOW" title="당일">당일</button>
+								<button class="com06 textType09 mplsDate week plus" name="CAL_WEEK" title="1주">1주</button>
+								<button class="com06 textType09 mplsDate month plus" name="CAL_MONTH" title="1개월">1개월</button>
+								<button class="com06 textType09 mplsDate 3month plus" name="CAL_3MONTH" title="3개월">3개월</button>
+							</div>
+						</div>
+		
+						<div class="row">
+		
+							<div class="col_h" style="width: 10%">
+								<span class="label" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;선명&quot;, &quot;ENG&quot; : &quot;VSL_NM&quot;}}">선명</span>
+							</div>
+							<div class="col_f" style="width: 30%; position: relative;">
+								<input class="dataGrid_fild" type="text" name="VSL_NM" title="선명" placeholder="선명" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;선명&quot;, &quot;ENG&quot; : &quot;VSL_NM&quot;}}" data-dg_valuationcheck="{&quot;required&quot; : &quot;N&quot;, &quot;dataType&quot; : &quot;S&quot; }">
+							</div>
+							<div class="col_h" style="width: 10%">
+								<span class="label" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;항차&quot;, &quot;ENG&quot; : &quot;VOYAGE_NO&quot;}}">항차</span>
+							</div>
+							<div class="col_f" style="width: 20%; position: relative;">
+								<input class="dataGrid_fild" type="text" name="VOYAGE_NO" title="항차" placeholder="항차" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;항차&quot;, &quot;ENG&quot; : &quot;VOYAGE_NO&quot;}}" data-dg_valuationcheck="{&quot;required&quot; : &quot;N&quot;, &quot;dataType&quot; : &quot;S&quot; }">
+							</div>		
+							<div class="col_h" style="width: 10%">
+								<span class="label" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;입출항구분&quot;, &quot;ENG&quot; : &quot;IO_KND&quot;}}">입출항구분</span>
+							</div>
+							<div class="col_f" style="width: 20%; position: relative;">
+								<button class="icon sviewLayer on" title="POPUP">&nbsp;</button>
+								<input class="dataGrid_fild on" type="text" name="IO_KND_CD" title="입출항구분" readonly="readonly" placeholder="입출항구분" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;입출항구분&quot;, &quot;ENG&quot; : &quot;IO_KND&quot;}}" data-dg_valuationcheck="{&quot;required&quot; : &quot;Y&quot;, &quot;dataType&quot; : &quot;S&quot; }" data-dg_value="E">
+							</div>				
+						</div>
+						
+						<div class="row">
+		
+							<div class="col_h" style="width: 10%">
+								<span class="label" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;출항항&quot;, &quot;ENG&quot; : &quot;POL&quot;}}">출항항</span>
+							</div>
+							<div class="col_f" style="width: 30%; position: relative;">
+							    <button class="icon sviewLayer on" title="POPUP">&nbsp;</button>
+								<input class="dataGrid_fild on" type="text" name="POL" title="출항항" placeholder="출항항" readonly="readonly" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;출항항&quot;, &quot;ENG&quot; : &quot;POL&quot;}}" data-dg_valuationcheck="{&quot;required&quot; : &quot;N&quot;, &quot;dataType&quot; : &quot;S&quot; }" data-dg_value="">
+							</div>
+							<div class="col_h" style="width: 10%">
+								<span class="label" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;입항항&quot;, &quot;ENG&quot; : &quot;POD&quot;}}">입항항</span>
+							</div>
+							<div class="col_f" style="width: 20%; position: relative;">
+							    <button class="icon sviewLayer on" title="POPUP">&nbsp;</button>
+								<input class="dataGrid_fild on" type="text" name="POD" title="입항항" placeholder="입항항" readonly="readonly" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;입항항&quot;, &quot;ENG&quot; : &quot;POD&quot;}}" data-dg_valuationcheck="{&quot;required&quot; : &quot;N&quot;, &quot;dataType&quot; : &quot;S&quot; }">
+							</div>		
+							<div class="col_h" style="width: 10%">
+								<span class="label" data-dg_language="{&quot;lang&quot; : {&quot;KOR&quot; : &quot;&quot;, &quot;ENG&quot; : &quot;&quot;}}"></span>
+							</div>
+							<div class="col_f" style="width: 20%;">
+							</div>
+						</div>				
+						<!--  -->
+					</div>
+=== VALUES BEFORE QUERY ===
+LINE_CD value=  dg= 
+VSL_NM value= TEN JUPITER dg= None
+VOYAGE_NO value= 26360E dg= None
+IO_KND_CD value= 수출 dg= E
+POL value=  dg= 
+POD value=  dg= None
+QUERY_BUTTONS 1
+=== RESULT TEXT HITS ===
+=== NETWORK scheduleViewList ===
+{"url": "https://cargo.lygferry.com/biz/scheduleViewList.do", "method": "POST", "postData": "{\"url\":\"/biz/scheduleViewList.do\",\"service\":\"scheduleViewList\",\"serviceParam\":\"{\\\"dataMaster\\\":{\\\"LINE_CD\\\":\\\"\\\",\\\"ACTL_DT_FROM\\\":\\\"20260818\\\",\\\"ACTL_DT_TO\\\":\\\"20260901\\\",\\\"VSL_NM\\\":\\\"\\\",\\\"VOYAGE_NO\\\":\\\"\\\",\\\"IO_KND_CD\\\":\\\"E\\\",\\\"POL\\\":\\\"\\\",\\\"POD\\\":\\\"\\\",\\\"rowType\\\":\\\"C\\\"}}\",\"thisObj\":\"\",\"targetGridObj\":\"\"}"}
+RESPONSE {"url": "https://cargo.lygferry.com/biz/scheduleViewList.do", "status": 200, "mimeType": "application/json"}
+{"url": "https://cargo.lygferry.com/biz/scheduleViewList.do", "method": "POST", "postData": "{\"url\":\"/biz/scheduleViewList.do\",\"service\":\"scheduleViewList\",\"serviceParam\":\"{\\\"dataMaster\\\":{\\\"LINE_CD\\\":\\\"\\\",\\\"ACTL_DT_FROM\\\":\\\"20260818\\\",\\\"ACTL_DT_TO\\\":\\\"20260901\\\",\\\"VSL_NM\\\":\\\"TEN JUPITER\\\",\\\"VOYAGE_NO\\\":\\\"26360E\\\",\\\"IO_KND_CD\\\":\\\"E\\\",\\\"POL\\\":\\\"\\\",\\\"POD\\\":\\\"\\\",\\\"rowType\\\":\\\"C\\\"}}\",\"thisObj\":\"\",\"targetGridObj\":\"\"}"}
+RESPONSE {"url": "https://cargo.lygferry.com/biz/scheduleViewList.do", "status": 200, "mimeType": "application/json"}
+=== BROWSER LOG ===
+{'level': 'DEBUG', 'message': 'https://cargo.lygferry.com/biz/scheduleView.do - [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o', 'source': 'recommendation', 'timestamp': 1787064517798}
+{'level': 'DEBUG', 'message': 'https://cargo.lygferry.com/biz/scheduleView.do - [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o', 'source': 'recommendation', 'timestamp': 1787064517798}
+{'level': 'DEBUG', 'message': 'https://cargo.lygferry.com/biz/scheduleView.do - [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o', 'source': 'recommendation', 'timestamp': 1787064517798}
+{'level': 'DEBUG', 'message': 'https://cargo.lygferry.com/biz/scheduleView.do - [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o', 'source': 'recommendation', 'timestamp': 1787064517798}
+{'level': 'DEBUG', 'message': 'https://cargo.lygferry.com/biz/scheduleView.do - [DOM] Password field is not contained in a form: (More info: https://goo.gl/9p2vKq) %o', 'source': 'recommendation', 'timestamp': 1787064517798}
+{'level': 'INFO', 'message': 'https://cargo.lygferry.com/resources/component/calender/calender.js?version=5 27:177 "calenderInit"', 'source': 'console-api', 'timestamp': 1787064521203}
+{'level': 'INFO', 'message': 'https://cargo.lygferry.com/resources/component/calender/calender.js?version=5 31:509 "calenderInit_YM"', 'source': 'console-api', 'timestamp': 1787064521203}
