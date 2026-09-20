@@ -12,6 +12,8 @@ import {
 
 type Shipment = ImportedShipment & {
   id: number;
+  carrierId: string;
+  preferredQuerySource: string;
   baselineEtd: string;
   baselineEta: string;
   atd: string;
@@ -72,6 +74,7 @@ type SyncSummary = {
 type Modal = "add" | "edit" | "import" | null;
 
 type ShipmentDraft = ImportedShipment & {
+  carrierId: string;
   notes: string;
 };
 
@@ -88,6 +91,7 @@ const emptyDraft: ShipmentDraft = {
   etd: "",
   eta: "",
   status: "待查询",
+  carrierId: "",
   source: "手工录入",
   notes: "",
 };
@@ -433,6 +437,7 @@ export default function TrackerApp() {
       etd: shipment.etd,
       eta: shipment.eta,
       status: shipment.status,
+      carrierId: shipment.carrierId || "",
       source: shipment.source || "手工录入",
       notes: shipment.notes || "",
     });
@@ -749,7 +754,7 @@ export default function TrackerApp() {
                 <label><span>航次</span><input value={draft.voyage} onChange={(e) => updateDraft("voyage", e.target.value)} placeholder="0789-043E" /></label>
                 <label><span>提单号</span><input value={draft.billOfLading} onChange={(e) => updateDraft("billOfLading", e.target.value)} /></label>
                 <label><span>Booking No.</span><input value={draft.bookingNo} onChange={(e) => updateDraft("bookingNo", e.target.value)} /></label>
-                <label className="wide"><span>船公司</span><select value={draft.source} onChange={(e) => updateDraft("source", e.target.value)}><option value="手工录入">自动识别</option>{draft.source !== "手工录入" && !carriers.some((carrier) => carrier.shortName === draft.source) && <option value={draft.source}>{draft.source}</option>}<optgroup label="船公司">{carriers.map((carrier) => <option key={carrier.id} value={carrier.shortName}>{carrier.shortName}</option>)}</optgroup></select></label>
+                <label className="wide"><span>船公司</span><select value={draft.carrierId} onChange={(e) => updateDraft("carrierId", e.target.value)}><option value="">自动识别</option><optgroup label="船公司">{carriers.map((carrier) => <option key={carrier.id} value={carrier.id}>{carrier.shortName}</option>)}</optgroup></select></label>
                 <label className="wide"><span>集装箱号</span><input value={draft.containerNo} onChange={(e) => updateDraft("containerNo", e.target.value)} placeholder="有箱号时优先填写" /></label>
                 <label><span>起运港</span><input value={draft.portOfLoading} onChange={(e) => updateDraft("portOfLoading", e.target.value)} placeholder="SHANGHAI" /></label>
                 <label><span>目的港</span><input value={draft.portOfDischarge} onChange={(e) => updateDraft("portOfDischarge", e.target.value)} placeholder="INCHON" /></label>
