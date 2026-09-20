@@ -1,6 +1,7 @@
 import { ensureShipmentsSchema, getD1 } from "@/db";
 import { attachScheduleHistory } from "@/db/shipment-history";
 import { hasValidRequestSession } from "@/app/lib/password-auth";
+import { carriers } from "@/app/lib/carriers";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ type ShipmentInput = {
   eta?: string;
   ata?: string;
   delayDays?: number;
+  carrierId?: string;
   source?: string;
   sourceUrl?: string;
   lastCheckedAt?: string;
@@ -63,6 +65,11 @@ function clean(value: unknown) {
   return typeof value === "string" ? value.trim().slice(0, 240) : "";
 }
 
+function carrierId(value: unknown) {
+  const id = clean(value);
+  return carriers.some((carrier) => carrier.id === id) ? id : "";
+}
+
 function subtractDays(value: string, days: number) {
   if (!value || days <= 0) return value;
   const date = new Date(`${value.slice(0, 10)}T00:00:00Z`);
@@ -90,6 +97,7 @@ function normalizeShipment(input: ShipmentInput) {
     delayDays: Number.isFinite(Number(input.delayDays))
       ? Math.max(0, Math.min(365, Number(input.delayDays)))
       : 0,
+    carrierId: carrierId(input.carrierId),
     source: clean(input.source) || "手工录入",
     sourceUrl: clean(input.sourceUrl),
     lastCheckedAt: clean(input.lastCheckedAt),
@@ -110,9 +118,10 @@ function upsertStatement(input: ShipmentInput) {
       INSERT INTO shipments (
         order_no, customer_code, vessel_name, voyage, bill_of_lading,
         booking_no, container_no, port_of_loading, port_of_discharge,
-        status, baseline_etd, etd, atd, baseline_eta, eta, ata, delay_days, source, source_url,
+        status, baseline_etd, etd, atd, baseline_eta, eta, ata, delay_days,
+        carrier_id, preferred_query_source, source, source_url,
         last_checked_at, notes, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(order_no) DO UPDATE SET
         customer_code = excluded.customer_code,
         vessel_name = excluded.vessel_name,
@@ -124,6 +133,7 @@ function upsertStatement(input: ShipmentInput) {
         port_of_discharge = excluded.port_of_discharge,
         status = excluded.status,
         carrier_id = CASE
+          WHEN excluded.carrier_id <> '' THEN excluded.carrier_id
           WHEN shipments.vessel_name <> excluded.vessel_name
             OR shipments.voyage <> excluded.voyage
             OR shipments.port_of_loading <> excluded.port_of_loading
@@ -131,6 +141,7 @@ function upsertStatement(input: ShipmentInput) {
           THEN '' ELSE shipments.carrier_id
         END,
         preferred_query_source = CASE
+          WHEN excluded.preferred_query_source <> '' THEN excluded.preferred_query_source
           WHEN shipments.vessel_name <> excluded.vessel_name
             OR shipments.voyage <> excluded.voyage
             OR shipments.port_of_loading <> excluded.port_of_loading
@@ -174,6 +185,8 @@ function upsertStatement(input: ShipmentInput) {
       row.eta,
       row.ata,
       row.delayDays,
+      row.carrierId,
+      row.carrierId,
       row.source,
       row.sourceUrl,
       row.lastCheckedAt,
@@ -322,6 +335,7 @@ export async function PATCH(request: Request) {
             container_no AS containerNo,
             port_of_loading AS portOfLoading,
             port_of_discharge AS portOfDischarge,
+            carrier_id AS carrierId,
             source
           FROM shipments
           WHERE id = ?
@@ -337,6 +351,7 @@ export async function PATCH(request: Request) {
           containerNo: string;
           portOfLoading: string;
           portOfDischarge: string;
+          carrierId: string;
           source: string;
         }>();
 
@@ -363,7 +378,7 @@ export async function PATCH(request: Request) {
         "containerNo",
         "portOfLoading",
         "portOfDischarge",
-        "source",
+        "carrierId",
       ].some((key) => {
         const field = key as keyof typeof existing;
         return String(existing[field] ?? "") !== String(row[key as keyof typeof row] ?? "");
@@ -398,8 +413,8 @@ export async function PATCH(request: Request) {
               ELSE baseline_etd
             END,
             etd = CASE WHEN ? = 1 THEN '' ELSE ? END,
-            carrier_id = CASE WHEN ? = 1 THEN '' ELSE carrier_id END,
-            preferred_query_source = CASE WHEN ? = 1 THEN '' ELSE preferred_query_source END,
+            carrier_id = ?,
+            preferred_query_source = ?,
             atd = CASE WHEN ? = 1 THEN '' ELSE atd END,
             baseline_eta = CASE
               WHEN ? = 1 THEN ''
@@ -433,8 +448,8 @@ export async function PATCH(request: Request) {
           row.etd,
           sailingIdentityChanged ? 1 : 0,
           row.etd,
-          sailingIdentityChanged ? 1 : 0,
-          sailingIdentityChanged ? 1 : 0,
+          row.carrierId,
+          row.carrierId,
           sailingIdentityChanged ? 1 : 0,
           sailingIdentityChanged ? 1 : 0,
           row.eta,
