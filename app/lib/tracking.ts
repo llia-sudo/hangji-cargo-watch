@@ -119,6 +119,8 @@ const COSCO_VESSEL_SCHEDULE_URL =
   "https://elines.coscoshipping.com/ebschedule/public/purpoShipment/vesselCode";
 const COSCO_BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
+const SINOKOR_FINDER_URL = "https://ebiz.sinokor.co.kr/Map/VslFinder";
+const SINOKOR_BASE_URL = "https://ebiz.sinokor.co.kr";
 const ONE_SCHEDULE_URL =
   "https://ecomm.one-line.com/one-ecom/schedule/vessel-schedule";
 const ONE_API_BASE = "https://ecomm.one-line.com/api";
@@ -381,6 +383,28 @@ type CoscoGlobalSchedule = {
   depDtlocAct?: string | null;
   arrDtlocCos?: string | null;
   depDtlocCos?: string | null;
+};
+
+type SinokorVesselLocation = {
+  CODE?: string;
+  NAME?: string;
+  MESSAGE?: string;
+};
+
+type SinokorPortSchedule = {
+  PORTCD?: string;
+  PORTNM?: string;
+  ETA?: string | null;
+  ETB?: string | null;
+  ETD?: string | null;
+  ACTETB?: string | null;
+  ACTETD?: string | null;
+  PREDICTETA?: string | null;
+};
+
+type SinokorVesselInfo = {
+  table?: Array<{ NAME?: string }>;
+  table1?: SinokorPortSchedule[];
 };
 
 type OneVessel = { code?: string; name?: string };
@@ -808,7 +832,9 @@ type TrackingSession = {
   panconSchedules: Map<string, Promise<PanconSchedule[]>>;
   carrierSearches: Map<string, Promise<OnlineCarrierIdentification | undefined>>;
   coscoCookie?: Promise<string>;
-  coscoVesselCodes: Map<string, Promise<string>>;
+  coscoVesselCodes: Map<string, Promise<string[]>>;
+  sinokorCookie?: Promise<string>;
+  sinokorVessels?: Promise<SinokorVesselLocation[]>;
   oneVesselCodes: Map<string, Promise<string>>;
   hmmSession?: Promise<HmmSessionData>;
   hmmVessels?: Promise<HmmVessel[]>;
@@ -1087,7 +1113,85 @@ async function coscoGetJson<T>(
   return response.json() as Promise<T>;
 }
 
-async function findCoscoVesselCode(
+async function sinokorSessionCookie(session: TrackingSession) {
+  if (session.sinokorCookie) return session.sinokorCookie;
+  const request = fetchWithTimeout(
+    SINOKOR_FINDER_URL,
+    {
+      headers: {
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": COSCO_BROWSER_USER_AGENT,
+      },
+      redirect: "follow",
+    },
+    22_000
+  ).then(async (response) => {
+    const cookie = cookieHeaderFromResponse(response);
+    await response.text();
+    if (!response.ok) throw new Error(`Sinokor Vessel Finder 返回 ${response.status}`);
+    if (!cookie) throw new Error("Sinokor Vessel Finder 未建立查询会话");
+    return cookie;
+  });
+  session.sinokorCookie = request;
+  request.catch(() => {
+    session.sinokorCookie = undefined;
+  });
+  return request;
+}
+
+async function sinokorGetJson<T>(path: string, session: TrackingSession) {
+  const cookie = await sinokorSessionCookie(session);
+  const response = await fetchWithTimeout(
+    `${SINOKOR_BASE_URL}${path}`,
+    {
+      headers: {
+        Accept: "application/json, text/javascript, */*; q=0.01",
+        "Accept-Language": "en-US,en;q=0.9",
+        Cookie: cookie,
+        Referer: SINOKOR_FINDER_URL,
+        "User-Agent": COSCO_BROWSER_USER_AGENT,
+        "X-Requested-With": "XMLHttpRequest",
+      },
+    },
+    22_000
+  );
+  if (!response.ok) {
+    await response.text();
+    throw new Error(`Sinokor Vessel Finder 返回 ${response.status}`);
+  }
+  if (!response.headers.get("content-type")?.toLowerCase().includes("json")) {
+    await response.text();
+    throw new Error("Sinokor Vessel Finder 没有返回 JSON 船期数据");
+  }
+  return response.json() as Promise<T>;
+}
+
+function loadSinokorVessels(session: TrackingSession) {
+  if (session.sinokorVessels) return session.sinokorVessels;
+  const request = sinokorGetJson<SinokorVesselLocation[]>(
+    "/VslFinder/GetAllVslLocation",
+    session
+  );
+  session.sinokorVessels = request;
+  request.catch(() => {
+    session.sinokorVessels = undefined;
+  });
+  return request;
+}
+
+function sinokorLocationParts(location: SinokorVesselLocation) {
+  const [messageVesselCode = "", voyage = ""] = (location.MESSAGE ?? "")
+    .split("/")
+    .map((value) => value.trim());
+  return {
+    vesselCode: location.CODE?.trim() || messageVesselCode,
+    vesselName: location.NAME?.trim() || messageVesselCode,
+    voyage,
+  };
+}
+
+async function findCoscoVesselCodes(
   vesselName: string,
   session: TrackingSession
 ) {
@@ -1104,13 +1208,16 @@ async function findCoscoVesselCode(
       COSCO_GLOBAL_SEARCH_URL,
       session
     );
-    const match = (data.data?.content ?? []).find(
-      (item) => identifier(item.description ?? "") === key
-    );
-    if (!match?.code) {
+    const codes = Array.from(new Set(
+      (data.data?.content ?? [])
+        .filter((item) => identifier(item.description ?? "") === key)
+        .map((item) => item.code?.trim() ?? "")
+        .filter(Boolean)
+    ));
+    if (!codes.length) {
       throw new Error(`COSCO 全球官网没有找到船名 ${vesselName}`);
     }
-    return match.code;
+    return codes;
   })();
   session.coscoVesselCodes.set(key, request);
   request.catch(() => session.coscoVesselCodes.delete(key));
@@ -1138,41 +1245,48 @@ async function queryCoscoGlobal(
     throw new Error("缺少船名或航次");
   }
 
-  const vesselCode = await findCoscoVesselCode(shipment.vesselName, session);
-  const params = new URLSearchParams({
-    vesselCode,
-    period: "28",
-    vesselName: shipment.vesselName.trim(),
-  });
-  const data = await coscoGetJson<{
-    data?: { content?: { data?: CoscoGlobalSchedule[] } };
-  }>(
-    `${COSCO_VESSEL_SCHEDULE_URL}?${params.toString()}`,
-    COSCO_GLOBAL_RESULT_URL,
-    session
-  );
-  const rows = data.data?.content?.data ?? [];
+  const vesselCodes = await findCoscoVesselCodes(shipment.vesselName, session);
+  const schedules = await Promise.all(vesselCodes.map(async (vesselCode) => {
+    const params = new URLSearchParams({
+      vesselCode,
+      period: "28",
+      vesselName: shipment.vesselName.trim(),
+    });
+    const data = await coscoGetJson<{
+      data?: { content?: { data?: CoscoGlobalSchedule[] } };
+    }>(
+      `${COSCO_VESSEL_SCHEDULE_URL}?${params.toString()}`,
+      COSCO_GLOBAL_RESULT_URL,
+      session
+    );
+    return data.data?.content?.data ?? [];
+  }));
+  const rows = schedules.flat();
   const voyageKey = identifier(shipment.voyage);
   const groups: CoscoGlobalSchedule[][] = [];
-  for (const row of rows) {
-    const current = groups.at(-1);
-    if (!current) {
-      groups.push([row]);
-      continue;
+  for (const schedule of schedules) {
+    const scheduleGroups: CoscoGlobalSchedule[][] = [];
+    for (const row of schedule) {
+      const current = scheduleGroups.at(-1);
+      if (!current) {
+        scheduleGroups.push([row]);
+        continue;
+      }
+      const rowVoyage = row.voy?.trim() ?? "";
+      const currentVoyage = current.find((item) => item.voy)?.voy?.trim() ?? "";
+      // COSCO can repeat the same voyage on every port row. Repeating the same
+      // voyage must not split one physical sailing into one-port groups.
+      if (
+        rowVoyage &&
+        currentVoyage &&
+        identifier(rowVoyage) !== identifier(currentVoyage)
+      ) {
+        scheduleGroups.push([row]);
+      } else {
+        current.push(row);
+      }
     }
-    const rowVoyage = row.voy?.trim() ?? "";
-    const currentVoyage = current.find((item) => item.voy)?.voy?.trim() ?? "";
-    // COSCO can repeat the same voyage on every port row. Repeating the same
-    // voyage must not split one physical sailing into one-port groups.
-    if (
-      rowVoyage &&
-      currentVoyage &&
-      identifier(rowVoyage) !== identifier(currentVoyage)
-    ) {
-      groups.push([row]);
-    } else {
-      current.push(row);
-    }
+    groups.push(...scheduleGroups);
   }
   const exactGroup = groups.find((group) =>
     (group.find((row) => row.voy)?.voy ?? "")
@@ -1315,6 +1429,88 @@ async function queryCoscoGlobal(
     sourceUrl: COSCO_GLOBAL_RESULT_URL,
     lastCheckedAt: chinaTimestamp(),
     notes: `COSCO 全球官网最新记录：${movement}${pod ? `；计划到达 ${pod.protName || shipment.portOfDischarge} ${timeLabel(eta)}` : ""}${route}${officialVoyage}${aliasNote}${inlandNote}。`,
+  };
+}
+
+async function querySinokor(
+  shipment: TrackingShipment,
+  session: TrackingSession
+): Promise<TrackingUpdate> {
+  if (!shipment.vesselName || !shipment.voyage) {
+    throw new Error("缺少船名或航次");
+  }
+  const vesselKey = identifier(shipment.vesselName);
+  const vesselMatches = (await loadSinokorVessels(session)).filter(
+    (location) => identifier(sinokorLocationParts(location).vesselName) === vesselKey
+  );
+  if (!vesselMatches.length) {
+    throw new Error(`Sinokor Vessel Finder 没有找到船名 ${shipment.vesselName}`);
+  }
+  const sailing = vesselMatches
+    .map(sinokorLocationParts)
+    .find((item) => exactVoyageMatch(item.voyage, shipment.voyage));
+  if (!sailing) {
+    const voyages = vesselMatches
+      .map((location) => sinokorLocationParts(location).voyage)
+      .filter(Boolean)
+      .join("、");
+    throw new Error(
+      `Sinokor Vessel Finder 没有目标航次 ${shipment.voyage}${voyages ? `；当前航次：${voyages}` : ""}`
+    );
+  }
+
+  const params = new URLSearchParams({
+    vsl: sailing.vesselCode,
+    vyg: sailing.voyage,
+  });
+  const data = await sinokorGetJson<SinokorVesselInfo>(
+    `/Popup/GetVslInfo?${params.toString()}`,
+    session
+  );
+  const rows = data.table1 ?? [];
+  const pair = orderedPortPair(
+    rows,
+    (row) => portMatches(row.PORTNM, row.PORTCD, shipment.portOfLoading),
+    (row) => portMatches(row.PORTNM, row.PORTCD, shipment.portOfDischarge)
+  );
+  if (!pair) {
+    throw new Error(
+      `Sinokor 官网已找到目标航次 ${shipment.voyage}，但没有匹配 ${shipment.portOfLoading} → ${shipment.portOfDischarge} 的有序港序`
+    );
+  }
+
+  const plannedEtd = websiteTimestamp(pair.pol.ETD ?? undefined);
+  const plannedEta =
+    websiteTimestamp(pair.pod.ETB ?? undefined) ||
+    websiteTimestamp(pair.pod.ETA ?? undefined);
+  const predictedEta = websiteTimestamp(pair.pod.PREDICTETA ?? undefined);
+  const now = chinaTimestamp();
+  const reportedAtd = websiteTimestamp(pair.pol.ACTETD ?? undefined);
+  const reportedAta = websiteTimestamp(pair.pod.ACTETB ?? undefined);
+  const etd = plannedEtd || shipment.etd;
+  const eta = predictedEta || plannedEta || shipment.eta;
+  const atd = reportedAtd && reportedAtd <= now ? reportedAtd : shipment.atd;
+  const ata = reportedAta && reportedAta <= now ? reportedAta : shipment.ata;
+  const baselineEtd = shipment.baselineEtd || plannedEtd || etd;
+  const baselineEta = shipment.baselineEta || plannedEta || eta;
+
+  return {
+    vesselName: data.table?.[0]?.NAME || sailing.vesselName || shipment.vesselName,
+    voyage: shipment.voyage,
+    portOfLoading: pair.pol.PORTNM || shipment.portOfLoading,
+    portOfDischarge: pair.pod.PORTNM || shipment.portOfDischarge,
+    status: scheduleStatus(etd, atd, eta, ata),
+    baselineEtd,
+    etd,
+    atd,
+    baselineEta,
+    eta,
+    ata,
+    delayDays: Math.max(shipment.delayDays, dayDifference(eta, baselineEta)),
+    source: "Sinokor Vessel Finder 官网船期",
+    sourceUrl: SINOKOR_FINDER_URL,
+    lastCheckedAt: chinaTimestamp(),
+    notes: `Sinokor 官网精确匹配 ${sailing.vesselName} / ${sailing.voyage} 及有序两港；${atd ? `实际开航 ${timeLabel(atd)}` : `计划开航 ${timeLabel(etd)}`}，${ata ? `实际靠泊 ${timeLabel(ata)}` : predictedEta ? `预测靠泊 ${timeLabel(eta)}` : `计划靠泊 ${timeLabel(eta)}`}。`,
   };
 }
 
@@ -2116,6 +2312,8 @@ async function queryCarrierSource(
       return queryPancon(shipment, session);
     case "cosco":
       return queryCoscoGlobal(shipment, session, context);
+    case "sinokor":
+      return querySinokor(shipment, session);
     case "one":
       return queryOne(shipment, session, context);
     case "hmm":
@@ -2205,8 +2403,13 @@ async function officialSourceRecognizesVessel(
   try {
     switch (carrier.id) {
       case "cosco":
-        await findCoscoVesselCode(shipment.vesselName, session);
+        await findCoscoVesselCodes(shipment.vesselName, session);
         return true;
+      case "sinokor":
+        return (await loadSinokorVessels(session)).some(
+          (item) =>
+            identifier(sinokorLocationParts(item).vesselName) === vesselKey
+        );
       case "one":
         await findOneVesselCode(shipment.vesselName, session);
         return true;
@@ -2245,7 +2448,7 @@ async function discoverUnknownCarrierByOfficialSchedule(
   // vessel and voyage, and normally an ordered POL/POD pair. If the exact
   // sailing confirms the POL but the requested POD is not in the ocean port
   // rotation, COSCO may return departure-only data with an explicit warning.
-  const candidateIds = ["cosco", "one", "hmm", "yang-ming", "maersk", "sinotrans"];
+  const candidateIds = ["cosco", "one", "hmm", "yang-ming", "maersk", "sinokor", "sinotrans"];
   const candidates = candidateIds
     .map((id) => carriers.find((carrier) => carrier.id === id))
     .filter((carrier): carrier is Carrier => Boolean(carrier));
