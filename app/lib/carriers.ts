@@ -462,6 +462,11 @@ const vesselRouteAliases: VesselRouteAlias[] = [
     vesselName: "REN JIAN 27",
     portPairs: [["SHANGHAI", "MANZANILLO"]],
   },
+  {
+    carrierId: "sinokor",
+    vesselName: "KWANGYANG VOYAGER",
+    portPairs: [["SHANGHAI", "BUSAN"]],
+  },
 ];
 
 function normalize(value?: string) {
