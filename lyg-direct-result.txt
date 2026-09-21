@@ -1,0 +1,16 @@
+
+=== DIRECTION E ===
+CURL_EXIT 0
+{"_dataGrid_":"dataGrid","dataGrid":[]}
+HTTP_STATUS:200
+
+TOP_TYPE dict
+TOP_KEYS ['_dataGrid_', 'dataGrid']
+
+=== DIRECTION I ===
+CURL_EXIT 0
+{"_dataGrid_":"dataGrid","dataGrid":[]}
+HTTP_STATUS:200
+
+TOP_TYPE dict
+TOP_KEYS ['_dataGrid_', 'dataGrid']

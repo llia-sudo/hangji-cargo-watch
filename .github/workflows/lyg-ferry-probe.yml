@@ -1,0 +1,86 @@
+name: Probe LYG Ferry schedule endpoints
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/lyg-ferry-probe.yml
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: lyg-ferry-probe
+      - name: Query TEN JUPITER directly
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' > lyg-direct-result.txt
+          import json, subprocess
+          endpoint='https://cargo.lygferry.com/biz/scheduleViewList.do'
+          referer='https://cargo.lygferry.com/biz/scheduleView.do'
+
+          def walk(obj,path='root'):
+              if isinstance(obj,dict):
+                  text=' '.join(str(v) for v in obj.values() if not isinstance(v,(dict,list)))
+                  if 'TEN JUPITER' in text.upper() or '26360E' in text.upper():
+                      print('MATCH',path,json.dumps(obj,ensure_ascii=False))
+                  for k,v in obj.items(): walk(v,f'{path}.{k}')
+              elif isinstance(obj,list):
+                  for i,v in enumerate(obj): walk(v,f'{path}[{i}]')
+
+          for direction in ['E','I']:
+              master={
+                'LINE_CD':'',
+                'ACTL_DT_FROM':'20260801',
+                'ACTL_DT_TO':'20261130',
+                'VSL_NM':'TEN JUPITER',
+                'VOYAGE_NO':'26360E',
+                'IO_KND_CD':direction,
+                'POL':'',
+                'POD':'',
+                'rowType':'C',
+              }
+              payload={
+                'url':'/biz/scheduleViewList.do',
+                'service':'scheduleViewList',
+                'serviceParam':json.dumps({'dataMaster':master},ensure_ascii=False,separators=(',',':')),
+                'thisObj':'',
+                'targetGridObj':'',
+              }
+              data=json.dumps(payload,ensure_ascii=False,separators=(',',':'))
+              cp=subprocess.run([
+                'curl','-L','--max-time','25','-sS','-w','\nHTTP_STATUS:%{http_code}\n',
+                '-H','Accept: application/json, text/javascript, */*; q=0.01',
+                '-H','Content-Type: application/json; charset=UTF-8',
+                '-H',f'Referer: {referer}',
+                '-H','User-Agent: Mozilla/5.0 CargoWatch/1.0',
+                '--data-binary','@-',endpoint
+              ],input=data,text=True,capture_output=True)
+              print('\n=== DIRECTION',direction,'===')
+              print('CURL_EXIT',cp.returncode)
+              if cp.stderr: print('STDERR',cp.stderr[:1000])
+              out=cp.stdout
+              print(out[:60000])
+              body=out.split('\nHTTP_STATUS:',1)[0]
+              try:
+                  parsed=json.loads(body)
+                  print('TOP_TYPE',type(parsed).__name__)
+                  if isinstance(parsed,dict): print('TOP_KEYS',list(parsed.keys()))
+                  walk(parsed)
+              except Exception as e:
+                  print('JSON_PARSE_ERROR',repr(e))
+          PY
+
+          sed -n '1,500p' lyg-direct-result.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lyg-direct-result.txt
+          git commit -m 'Record LYG Ferry direct schedule response' || true
+          git push origin HEAD:lyg-ferry-probe
