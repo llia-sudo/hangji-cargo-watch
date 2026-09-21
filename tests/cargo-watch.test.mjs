@@ -171,7 +171,7 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /queryOne/);
   assert.match(tracking, /queryHmm/);
   assert.match(tracking, /data\.RTN_DATA\?\.boardList \?\? data\.boardList/);
-  assert.match(tracking, /hmmVoyageFamily/);
+  assert.match(tracking, /directionalVoyageFamily/);
   assert.match(tracking, /allowDepartureOnly/);
   assert.match(tracking, /目的港信息不符/);
   assert.match(tracking, /ETA\/ATA 未由该海运挂港表验证/);
@@ -265,13 +265,16 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(carriers, /id: "sinokor",[\s\S]*?queryMode: "automatic"/);
   assert.match(carriers, /ebiz\.sinokor\.co\.kr\/Map\/VslFinder/);
   assert.match(tracking, /case "sinokor":\s+return querySinokor/);
+  assert.match(tracking, /automaticCarrierQueryIds[\s\S]*?"sinokor"/);
   assert.match(tracking, /\/VslFinder\/GetAllVslLocation/);
   assert.match(tracking, /\/Popup\/GetVslInfo\?/);
   assert.match(tracking, /vesselName: location\.NAME/);
   assert.match(tracking, /vsl: sailing\.vesselCode/);
+  assert.match(tracking, /directionalVoyageFamily\(item\.voyage\) === directionalVoyageFamily\(shipment\.voyage\)/);
   assert.match(tracking, /pair\.pod\.PREDICTETA/);
   assert.match(tracking, /pair\.pod\.ACTETB/);
   assert.match(tracking, /pair\.pol\.ACTETD/);
+  assert.match(carriers, /vesselName: "KWANGYANG VOYAGER",\s+portPairs: \[\["SHANGHAI", "BUSAN"\]\]/);
 });
 
 test("desktop shipment UI uses readable route and detail typography", async () => {
