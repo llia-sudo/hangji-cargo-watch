@@ -118,7 +118,7 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(carriers, /vesselName: "CONCERTO"/);
   assert.match(carriers, /vesselName: "REN JIAN 27"/);
   assert.match(carriers, /carrierId: "sinotrans"/);
-  assert.match(carriers, /e-sinokor\.com\/Schedule\/vsl-schedule/);
+  assert.match(carriers, /ebiz\.sinokor\.co\.kr\/Map\/VslFinder/);
   assert.match(carriers, /Sinotrans Container Lines/);
   assert.match(carriers, /ebusiness\.sinolines\.com\.cn\/Ebusiness\/EQUERY\/QuerySchedule\.aspx/);
   assert.match(carriers, /SHANGHAI INCHON INTERNATIONAL FERRY/);
@@ -135,6 +135,9 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /COSCO eLines 全球官网船期/);
   assert.match(tracking, /ebschedule\/public\/purpoShipment\/vesselCode/);
   assert.match(tracking, /findVesselByPrefix/);
+  assert.match(tracking, /findCoscoVesselCodes/);
+  assert.match(tracking, /const schedules = await Promise\.all\(vesselCodes\.map/);
+  assert.match(tracking, /const rows = schedules\.flat\(\)/);
   assert.match(tracking, /coscoSessionCookie/);
   assert.match(tracking, /queryCoscoGlobal/);
   assert.match(tracking, /COSCO 官网返回 \${rows.length} 条船期记录/);
@@ -156,7 +159,7 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(syncApi, /vessel_query_profiles/);
   assert.match(syncApi, /profileMap/);
   assert.match(syncApi, /success_count = vessel_query_profiles\.success_count \+ 1/);
-  assert.match(tracking, /candidateIds = \["cosco", "one", "hmm", "yang-ming", "maersk", "sinotrans"\]/);
+  assert.match(tracking, /candidateIds = \["cosco", "one", "hmm", "yang-ming", "maersk", "sinokor", "sinotrans"\]/);
   assert.doesNotMatch(tracking, /carrier = sinotransVessel/);
   assert.match(tracking, /persistedQuerySource/);
   assert.match(tracking, /沿用上次成功的/);
@@ -168,7 +171,7 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /queryOne/);
   assert.match(tracking, /queryHmm/);
   assert.match(tracking, /data\.RTN_DATA\?\.boardList \?\? data\.boardList/);
-  assert.match(tracking, /hmmVoyageFamily/);
+  assert.match(tracking, /directionalVoyageFamily/);
   assert.match(tracking, /allowDepartureOnly/);
   assert.match(tracking, /目的港信息不符/);
   assert.match(tracking, /ETA\/ATA 未由该海运挂港表验证/);
@@ -202,6 +205,11 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(dashboard, /ETD 从/);
   assert.match(dashboard, /最终实际开船/);
   assert.match(shipmentApi, /export async function PATCH/);
+  assert.match(dashboard, /value=\{draft\.carrierId\}/);
+  assert.match(dashboard, /updateDraft\("carrierId", e\.target\.value\)/);
+  assert.match(dashboard, /value=\{carrier\.id\}/);
+  assert.match(shipmentApi, /carrier_id = \?,\s+preferred_query_source = \?/);
+  assert.match(shipmentApi, /row\.carrierId,\s+row\.carrierId/);
   assert.match(shipmentApi, /SET archived_at = CASE/);
   assert.match(syncApi, /!shipment\.archivedAt/);
   assert.match(dashboard, /已归档船次/);
@@ -254,6 +262,19 @@ test("one-click sync queries supported carrier sources and writes results back",
   assert.match(tracking, /carrierQueries/);
   assert.match(tracking, /共舱回退/);
   assert.match(tracking, /voyage: shipment\.voyage/);
+  assert.match(carriers, /id: "sinokor",[\s\S]*?queryMode: "automatic"/);
+  assert.match(carriers, /ebiz\.sinokor\.co\.kr\/Map\/VslFinder/);
+  assert.match(tracking, /case "sinokor":\s+return querySinokor/);
+  assert.match(tracking, /automaticCarrierQueryIds[\s\S]*?"sinokor"/);
+  assert.match(tracking, /\/VslFinder\/GetAllVslLocation/);
+  assert.match(tracking, /\/Popup\/GetVslInfo\?/);
+  assert.match(tracking, /vesselName: location\.NAME/);
+  assert.match(tracking, /vsl: sailing\.vesselCode/);
+  assert.match(tracking, /directionalVoyageFamily\(item\.voyage\) === directionalVoyageFamily\(shipment\.voyage\)/);
+  assert.match(tracking, /pair\.pod\.PREDICTETA/);
+  assert.match(tracking, /pair\.pod\.ACTETB/);
+  assert.match(tracking, /pair\.pol\.ACTETD/);
+  assert.match(carriers, /vesselName: "KWANGYANG VOYAGER",\s+portPairs: \[\["SHANGHAI", "BUSAN"\]\]/);
 });
 
 test("desktop shipment UI uses readable route and detail typography", async () => {

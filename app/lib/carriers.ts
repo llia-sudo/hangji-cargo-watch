@@ -254,8 +254,8 @@ export const carriers: Carrier[] = [
     id: "sinokor",
     name: "Sinokor Merchant Marine",
     shortName: "Sinokor",
-    queryMode: "official-page",
-    trackingUrl: "https://e-sinokor.com/Schedule/vsl-schedule",
+    queryMode: "automatic",
+    trackingUrl: "https://ebiz.sinokor.co.kr/Map/VslFinder",
     aliases: ["SINOKOR"],
     containerPrefixes: ["SKLU"],
     documentPrefixes: ["SKLU", "SNKO"],
@@ -461,6 +461,11 @@ const vesselRouteAliases: VesselRouteAlias[] = [
     carrierId: "sinotrans",
     vesselName: "REN JIAN 27",
     portPairs: [["SHANGHAI", "MANZANILLO"]],
+  },
+  {
+    carrierId: "sinokor",
+    vesselName: "KWANGYANG VOYAGER",
+    portPairs: [["SHANGHAI", "BUSAN"]],
   },
 ];
 
