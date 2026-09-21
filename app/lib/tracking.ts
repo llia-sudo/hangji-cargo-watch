@@ -1446,9 +1446,12 @@ async function querySinokor(
   if (!vesselMatches.length) {
     throw new Error(`Sinokor Vessel Finder 没有找到船名 ${shipment.vesselName}`);
   }
-  const sailing = vesselMatches
-    .map(sinokorLocationParts)
-    .find((item) => exactVoyageMatch(item.voyage, shipment.voyage));
+  const sailings = vesselMatches.map(sinokorLocationParts);
+  const sailing = sailings.find((item) =>
+    exactVoyageMatch(item.voyage, shipment.voyage)
+  ) ?? sailings.find((item) =>
+    directionalVoyageFamily(item.voyage) === directionalVoyageFamily(shipment.voyage)
+  );
   if (!sailing) {
     const voyages = vesselMatches
       .map((location) => sinokorLocationParts(location).voyage)
@@ -1461,7 +1464,7 @@ async function querySinokor(
 
   const params = new URLSearchParams({
     vsl: sailing.vesselCode,
-    vyg: sailing.voyage,
+    vyg: shipment.voyage.trim(),
   });
   const data = await sinokorGetJson<SinokorVesselInfo>(
     `/Popup/GetVslInfo?${params.toString()}`,
@@ -1510,7 +1513,7 @@ async function querySinokor(
     source: "Sinokor Vessel Finder 官网船期",
     sourceUrl: SINOKOR_FINDER_URL,
     lastCheckedAt: chinaTimestamp(),
-    notes: `Sinokor 官网精确匹配 ${sailing.vesselName} / ${sailing.voyage} 及有序两港；${atd ? `实际开航 ${timeLabel(atd)}` : `计划开航 ${timeLabel(etd)}`}，${ata ? `实际靠泊 ${timeLabel(ata)}` : predictedEta ? `预测靠泊 ${timeLabel(eta)}` : `计划靠泊 ${timeLabel(eta)}`}。`,
+    notes: `Sinokor 官网匹配 ${sailing.vesselName} / ${shipment.voyage} 及有序两港${exactVoyageMatch(sailing.voyage, shipment.voyage) ? "" : `（定位页当前显示同数字航次 ${sailing.voyage}）`}；${atd ? `实际开航 ${timeLabel(atd)}` : `计划开航 ${timeLabel(etd)}`}，${ata ? `实际靠泊 ${timeLabel(ata)}` : predictedEta ? `预测靠泊 ${timeLabel(eta)}` : `计划靠泊 ${timeLabel(eta)}`}。`,
   };
 }
 
@@ -2028,7 +2031,7 @@ async function loadHmmVessels(session: TrackingSession) {
   return request;
 }
 
-function hmmVoyageFamily(value?: string) {
+function directionalVoyageFamily(value?: string) {
   let key = identifier(value ?? "");
   if (/^[A-Z]{4}\d/.test(key)) key = key.slice(4);
   key = key.replace(/[EWNS]$/, "").replace(/^0+/, "");
@@ -2072,7 +2075,7 @@ async function queryHmm(
     // A single physical sailing can switch from 0118E at Asian load ports to
     // 0118W at Latin-American discharge ports. Group by the numeric voyage
     // family so the ordered POL/POD pair stays together across that switch.
-    const key = hmmVoyageFamily(voyage);
+    const key = directionalVoyageFamily(voyage);
     if (!key) continue;
     const group = groups.get(key) ?? { voyage, rows: [] };
     group.rows.push(row);
@@ -2111,7 +2114,7 @@ async function queryHmm(
   });
   const selected = selections[0];
   if (!selected) {
-    if (rows.length || groups.has(hmmVoyageFamily(shipment.voyage))) {
+    if (rows.length || groups.has(directionalVoyageFamily(shipment.voyage))) {
       throw new Error("HMM 官网航次存在，但启运港或目的港不在该航次港序中");
     }
     throw new Error("HMM 全球官网已查询，但没有相同航次或可信共舱别名");
@@ -2265,6 +2268,7 @@ const automaticCarrierQueryIds = new Set([
   "one",
   "hmm",
   "yang-ming",
+  "sinokor",
 ]);
 
 function supportsAutomaticCarrierQuery(carrier: Carrier) {
